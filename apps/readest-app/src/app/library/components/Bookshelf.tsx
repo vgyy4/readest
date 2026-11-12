@@ -66,6 +66,7 @@ import GroupingModal from './GroupingModal';
 import SetStatusAlert from './SetStatusAlert';
 import RecentShelf from './RecentShelf';
 import BookshelvesDialog from './BookshelvesDialog';
+import ProfilesDialog from './ProfilesDialog';
 import { resolveBookshelves, RECENT_SHELF_ID } from '@/services/bookshelves/definitions';
 import { selectShelfBooks } from '@/services/bookshelves/evaluate';
 import { useOpenBook } from '../hooks/useOpenBook';
@@ -236,6 +237,13 @@ const Bookshelf: React.FC<BookshelfProps> = ({
   const [showStatusAlert, setShowStatusAlert] = useState(false);
   const [showGroupingModal, setShowGroupingModal] = useState(false);
   const [showBookshelvesDialog, setShowBookshelvesDialog] = useState(false);
+  const [showProfilesDialog, setShowProfilesDialog] = useState(false);
+
+  useEffect(() => {
+    const open = () => setShowProfilesDialog(true);
+    eventDispatcher.on('open-profiles', open);
+    return () => eventDispatcher.off('open-profiles', open);
+  }, []);
 
   // The View menu asks for the Manage Bookshelves window by event, because the
   // menu closes (and unmounts) as soon as an item is chosen.
@@ -1112,6 +1120,11 @@ const Bookshelf: React.FC<BookshelfProps> = ({
               handleSetSelectMode(false);
             }}
           />
+        </ModalPortal>
+      )}
+      {showProfilesDialog && (
+        <ModalPortal>
+          <ProfilesDialog books={libraryBooks} onClose={() => setShowProfilesDialog(false)} />
         </ModalPortal>
       )}
       {showBookshelvesDialog && (

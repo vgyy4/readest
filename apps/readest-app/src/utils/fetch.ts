@@ -1,4 +1,6 @@
 import { getAccessToken } from './access';
+import { getActiveProfileId } from '@/libs/profiles/active';
+import { PROFILE_HEADER } from '@/libs/profiles/shared';
 
 export const fetchWithTimeout = (url: string, options: RequestInit = {}, timeout = 10000) => {
   const controller = new AbortController();
@@ -15,9 +17,12 @@ export const fetchWithAuth = async (url: string, options: RequestInit) => {
   if (!token) {
     throw new Error('Not authenticated');
   }
+  // Acting as a profile: the server maps the request to that profile's data.
+  const profileId = getActiveProfileId();
   const headers = {
     ...options.headers,
     Authorization: `Bearer ${token}`,
+    ...(profileId ? { [PROFILE_HEADER]: profileId } : {}),
   };
 
   const response = await fetch(url, { ...options, headers });

@@ -139,6 +139,38 @@ docker compose down -v
 
 ---
 
+## Profiles (this fork)
+
+One account can hold several profiles: the account itself is the **main**
+profile; every other profile is a hidden, login-less user owned by it, so each
+keeps its own library, reading progress, notes and stats. The main profile
+chooses which of its books each profile can see (**Settings menu → Profiles…**)
+and may protect profile management and switching with a PIN. Books and covers
+stay stored once, under the main profile.
+
+Server requirements:
+
+- Apply `volumes/db/migrations/019_profiles.sql` (the migration runner does it
+  on first boot, or run `zz-readest-migrations.sh` by hand when upgrading).
+- The client must be built from this fork (`compose.build.yaml`), not the
+  upstream `ghcr.io/readest/readest` image: the profile API routes live in the
+  app, and they use `SUPABASE_ADMIN_KEY` (the service role key, already passed
+  by `compose.yaml`) to create and read the profiles' users.
+
+Limits worth knowing: a profile shares the main account's sign-in on the device,
+so profiles separate data and gate management behind the PIN, but are not a
+security boundary against someone who deliberately crafts API requests as the
+main profile. Profiles cannot upload books or manage storage, and do not sync
+account-level settings, fonts, dictionaries or catalogs.
+
+### Pointing the mobile and desktop apps at your server
+
+The apps read the server addresses at build time. Build with
+`NEXT_PUBLIC_API_BASE_URL` (your site URL), `NEXT_PUBLIC_SUPABASE_URL` and
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`; iOS requires `https://` for a non-local
+server. The iOS workflow in this fork reads them from the repository variables
+`API_BASE_URL`, `SUPABASE_URL` and `SUPABASE_ANON_KEY` when they are set.
+
 ## Database schema
 
 | path                          | role                                                                       |

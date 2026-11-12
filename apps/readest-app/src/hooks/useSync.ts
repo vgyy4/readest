@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { getSyncCursor, setSyncCursor } from '@/libs/profiles/cursors';
 import { useRouter } from 'next/navigation';
 import { useEnv } from '@/context/EnvContext';
 import { useSyncContext } from '@/context/SyncContext';
@@ -148,9 +149,9 @@ export function useSync(bookKey?: string) {
     if (bookKey && !config?.location) return;
     if (lastSyncedAtInited) return;
 
-    const lastSyncedBooksAt = settings.lastSyncedAtBooks ?? 0;
-    const lastSyncedConfigsAt = config?.lastSyncedAtConfig ?? settings.lastSyncedAtConfigs ?? 0;
-    const lastSyncedNotesAt = config?.lastSyncedAtNotes ?? settings.lastSyncedAtNotes ?? 0;
+    const lastSyncedBooksAt = getSyncCursor(settings, 'books');
+    const lastSyncedConfigsAt = config?.lastSyncedAtConfig ?? getSyncCursor(settings, 'configs');
+    const lastSyncedNotesAt = config?.lastSyncedAtNotes ?? getSyncCursor(settings, 'notes');
     const now = Date.now();
     setLastSyncedAtBooks(
       now - lastSyncedBooksAt > 3 * ONE_DAY_IN_MS ? 0 : lastSyncedBooksAt - ONE_DAY_IN_MS,
@@ -192,7 +193,7 @@ export function useSync(bookKey?: string) {
             // resumes from the last page instead of restarting from `since`.
             setLastSyncedAt(cursor);
             const settings = useSettingsStore.getState().settings;
-            settings.lastSyncedAtBooks = cursor;
+            setSyncCursor(settings, 'books', cursor);
             setSettings(settings);
           },
         );
@@ -211,12 +212,12 @@ export function useSync(bookKey?: string) {
       const settings = useSettingsStore.getState().settings;
       switch (type) {
         case 'books':
-          settings.lastSyncedAtBooks = maxTime;
+          setSyncCursor(settings, 'books', maxTime);
           setSettings(settings);
           break;
         case 'configs':
           if (!bookId) {
-            settings.lastSyncedAtConfigs = maxTime;
+            setSyncCursor(settings, 'configs', maxTime);
             setSettings(settings);
           } else if (bookKey) {
             setConfig(bookKey, { lastSyncedAtConfig: maxTime });
@@ -224,7 +225,7 @@ export function useSync(bookKey?: string) {
           break;
         case 'notes':
           if (!bookId) {
-            settings.lastSyncedAtNotes = maxTime;
+            setSyncCursor(settings, 'notes', maxTime);
             setSettings(settings);
           } else if (bookKey) {
             setConfig(bookKey, { lastSyncedAtNotes: maxTime });

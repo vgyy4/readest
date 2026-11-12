@@ -11,6 +11,7 @@ import { DOWNLOAD_READEST_URL } from '@/services/constants';
 import { setBackupDialogVisible } from '@/app/library/components/BackupWindow';
 import { setCacheManagerDialogVisible } from '@/app/library/components/CacheManagerWindow';
 import { useAuth } from '@/context/AuthContext';
+import { eventDispatcher } from '@/utils/event';
 import { useEnv } from '@/context/EnvContext';
 import { useThemeStore } from '@/store/themeStore';
 import { useQuotaStats } from '@/hooks/useQuotaStats';
@@ -94,6 +95,11 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
 
   const toggleBiometricUnlock = () => {
     void saveSysSettings(envConfig, 'biometricUnlockEnabled', !settings.biometricUnlockEnabled);
+  };
+
+  const openProfilesDialog = () => {
+    setIsDropdownOpen?.(false);
+    void eventDispatcher.dispatch('open-profiles');
   };
 
   const openAppLockDialog = (mode: AppLockDialogMode) => {
@@ -378,6 +384,7 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
               </button>
             ) : null}
             <MenuItem label={_('Account')} onClick={handleUserProfile} />
+            <MenuItem label={_('Profiles…')} onClick={openProfilesDialog} />
           </ul>
         </MenuItem>
       ) : (

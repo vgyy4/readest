@@ -12,15 +12,20 @@ import { getStorageType } from './storage';
 import { getDirFromLanguage } from './rtl';
 import { code6392to6391, isValidLang, normalizedLangCode } from './lang';
 import { md5 } from './md5';
+import { getActiveProfileId } from '@/libs/profiles/active';
 
 export const getDir = (book: Book) => {
   return `${book.hash}`;
 };
+// A profile keeps its own library index and per-book progress file on this
+// device; the book, cover and other files are shared by hash.
 export const getLibraryFilename = () => {
-  return 'library.json';
+  const profileId = getActiveProfileId();
+  return profileId ? `library.${profileId}.json` : 'library.json';
 };
 export const getLibraryBackupFilename = () => {
-  return 'library_backup.json';
+  const profileId = getActiveProfileId();
+  return profileId ? `library_backup.${profileId}.json` : 'library_backup.json';
 };
 export const getRemoteBookFilename = (book: Book) => {
   // S3 storage: https://docs.aws.amazon.com/zh_cn/AmazonS3/latest/userguide/object-keys.html
@@ -39,7 +44,8 @@ export const getCoverFilename = (book: Book) => {
   return `${book.hash}/cover.png`;
 };
 export const getConfigFilename = (book: Book) => {
-  return `${book.hash}/config.json`;
+  const profileId = getActiveProfileId();
+  return `${book.hash}/${profileId ? `config.${profileId}.json` : 'config.json'}`;
 };
 export const getBookNavFilename = (book: Book) => {
   return `${book.hash}/nav.json`;

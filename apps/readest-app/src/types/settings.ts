@@ -452,6 +452,8 @@ export interface SystemSettings {
   lastSyncedAtBooks: number;
   lastSyncedAtConfigs: number;
   lastSyncedAtNotes: number;
+  /** Sync timestamps of each profile on this device, by profile id. */
+  profileSyncCursors?: Record<string, { books?: number; configs?: number; notes?: number }>;
 
   /**
    * App-lock PIN. When `pinCodeEnabled` is true, the user must enter

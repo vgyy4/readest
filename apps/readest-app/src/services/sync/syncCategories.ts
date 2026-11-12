@@ -26,6 +26,7 @@
 import { useSettingsStore } from '@/store/settingsStore';
 import { isReadestCloudEnabled } from '@/services/sync/cloudSyncProvider';
 import { SYNC_CATEGORIES, type SyncCategory } from '@/types/settings';
+import { isProfileActive } from '@/libs/profiles/active';
 
 export { SYNC_CATEGORIES };
 export type { SyncCategory };
@@ -121,9 +122,22 @@ const PROVIDER_GATED_CATEGORIES: ReadonlySet<SyncCategory> = new Set([
   'note',
 ] as SyncCategory[]);
 
+/**
+ * A profile syncs only its own books, progress, notes and reading stats.
+ * Everything else (settings, fonts, dictionaries, textures, catalogs,
+ * credentials) is the account's, so a profile never reads or writes it.
+ */
+const PROFILE_CATEGORIES: ReadonlySet<SyncCategory> = new Set([
+  'book',
+  'progress',
+  'note',
+  'stats',
+] as SyncCategory[]);
+
 export const isSyncCategoryEnabled = (id: string): boolean => {
   const category = toCategory(id);
   if (!category) return true; // unknown id → always-on
+  if (isProfileActive() && !PROFILE_CATEGORIES.has(category)) return false;
   if (
     PROVIDER_GATED_CATEGORIES.has(category) &&
     !isReadestCloudEnabled(useSettingsStore.getState().settings)
@@ -150,4 +164,5 @@ export const isSyncCategoryEnabled = (id: string): boolean => {
  * and the passphrase prompt never fires. The Sync passphrase UI is
  * hidden in this state.
  */
-export const isCredentialsSyncEnabled = (): boolean => isCategoryRawEnabled('credentials');
+export const isCredentialsSyncEnabled = (): boolean =>
+  !isProfileActive() && isCategoryRawEnabled('credentials');
