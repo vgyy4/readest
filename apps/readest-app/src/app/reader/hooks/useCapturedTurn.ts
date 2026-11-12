@@ -52,7 +52,9 @@ export const getCapturedTurnStyle = (
   if (!viewSettings.animated || viewSettings.scrolled || viewSettings.isEink || isFixedLayout) {
     return null;
   }
-  if (viewSettings.pageTurnStyle === 'curl') return 'curl';
+  if (viewSettings.pageTurnStyle === 'curl' || viewSettings.pageTurnStyle === 'flip') {
+    return 'curl';
+  }
   if (
     viewSettings.pageTurnStyle === 'slide' &&
     (prepareNativeSlide || !detectViewTransitionGroup())
@@ -78,7 +80,9 @@ export const applyPageTurnAttributes = (
   prepareNativeSlide = getInitializedAppService()?.isMobileApp === true,
 ) => {
   const captured = getCapturedTurnStyle(viewSettings, isFixedLayout, prepareNativeSlide);
-  const style = viewSettings.pageTurnStyle;
+  // Page Flip is drawn by the captured turn only; the paginator's own turn
+  // styles know nothing of it.
+  const style = viewSettings.pageTurnStyle === 'flip' ? 'curl' : viewSettings.pageTurnStyle;
   if (style && style !== 'push' && !captured && detectViewTransitionGroup()) {
     view.renderer.setAttribute('turn-style', style);
   } else {
@@ -409,6 +413,7 @@ export const useCapturedTurn = (bookKey: string, viewRef: React.RefObject<Foliat
         restoreToolbarOnCancelRef.current = false;
         if (shouldRestore) await syncToolbarVisibility(true);
       },
+      isPageFlip: () => getViewSettings(bookKey)?.pageTurnStyle === 'flip',
       navigate: async (forward: boolean) => {
         // The paginator's animated paths (push slide and the layered VT
         // turns) all gate on the `animated` attribute; dropping it makes

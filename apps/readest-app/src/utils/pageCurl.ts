@@ -12,6 +12,8 @@
  * ImageBitmap of the outgoing page and drive `render(progress, grab)`.
  */
 
+import { PageFlipLayer } from './pageFlip';
+
 const VERTEX_SHADER = `
 attribute vec2 aPos;      // page coords in [0,1]x[0,1]
 uniform vec2 uPage;       // page size in px
@@ -83,15 +85,22 @@ export interface CurlGrab {
 
 export class PageCurlRenderer {
   private canvas: HTMLCanvasElement | null = null;
-  private gl: WebGLRenderingContext | null = null;
+  private gl: WebGLRenderingContext | WebGL2RenderingContext | null = null;
+  private program: WebGLProgram | null = null;
+  /** Page Flip, drawn on this canvas when the context is WebGL 2. */
+  private flip: PageFlipLayer | null = null;
+  private flipping = false;
   private backTex: WebGLTexture | null = null;
   private indexCount = 0;
   private width = 0;
   private height = 0;
   private uniforms: Record<string, WebGLUniformLocation | null> = {};
   private preserveDrawingBuffer: boolean;
+  /** Built to draw Page Flip as well, on a WebGL 2 context where available. */
+  readonly pageFlip: boolean;
 
-  constructor(options: { preserveDrawingBuffer?: boolean } = {}) {
+  constructor(options: { preserveDrawingBuffer?: boolean; pageFlip?: boolean } = {}) {
+    this.pageFlip = options.pageFlip ?? false;
     // Standalone pixel/readback users retain the historical default. The
     // captured-turn pipeline opts out because its idle surface can stay alive
     // much longer and redraws before reveal.
@@ -118,12 +127,16 @@ export class PageCurlRenderer {
 
     // preserveDrawingBuffer is only needed by readback callers. Long-lived
     // prepared turn surfaces disable it to avoid retaining another full-size
-    // color buffer while idle.
-    const gl = canvas.getContext('webgl', {
+    // color buffer while idle. Page Flip's shader needs WebGL 2, which runs
+    // the curl's shaders unchanged.
+    const contextOptions: WebGLContextAttributes = {
       alpha: true,
       premultipliedAlpha: true,
       preserveDrawingBuffer: this.preserveDrawingBuffer,
-    });
+    };
+    const gl =
+      (this.pageFlip ? canvas.getContext('webgl2', contextOptions) : null) ??
+      canvas.getContext('webgl', contextOptions);
     if (!gl) {
       this.dispose();
       throw new Error('WebGL unavailable');
@@ -148,6 +161,7 @@ export class PageCurlRenderer {
     }
     // biome-ignore lint/correctness/useHookAtTopLevel: WebGL API, not a React hook
     gl.useProgram(program);
+    this.program = program;
 
     // Grid mesh of GRID x GRID quads over the unit page.
     const verts: number[] = [];
@@ -214,6 +228,15 @@ export class PageCurlRenderer {
     gl.frontFace(gl.CW);
     gl.enable(gl.BLEND);
     gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    if (typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext) {
+      try {
+        this.flip = new PageFlipLayer(gl);
+      } catch (error) {
+        console.warn('Page Flip unavailable', error);
+      }
+      // biome-ignore lint/correctness/useHookAtTopLevel: WebGL API, not a React hook
+      gl.useProgram(program);
+    }
   }
 
   /** Upload the captured page (drawn at progress 0 it exactly covers). */
@@ -247,6 +270,30 @@ export class PageCurlRenderer {
   }
 
   /**
+   * Turn the next sheet as a Page Flip instead of a curl. A context without
+   * WebGL 2 keeps the curl. Returns whether it flips.
+   */
+  setFlip(flip: boolean) {
+    this.flipping = flip && !!this.flip;
+    this.flip?.reset();
+    return this.flipping;
+  }
+
+  /** Release a flipped sheet to turn (`commit`) or return; false when this turn curls. */
+  release(commit: boolean) {
+    if (!this.flipping || !this.flip) return false;
+    this.flip.release(commit);
+    return true;
+  }
+
+  /** Step and draw the released flipped sheet; false once it has settled. */
+  advance(seconds: number, rtl: boolean) {
+    const moving = this.flip?.advance(seconds) ?? false;
+    this.renderFlip(rtl);
+    return moving;
+  }
+
+  /**
    * Draw the curl at `progress` (0 = flat, 1 = fully turned). `grab` picks
    * where the reader lifted the page: y near 1 curls from the bottom corner
    * (a diagonal fold that straightens as the turn completes), y near 0.5
@@ -256,6 +303,10 @@ export class PageCurlRenderer {
   render(progress: number, grab: CurlGrab = { x: 1, y: 0.5 }, rtl = false) {
     const gl = this.gl;
     if (!gl) return;
+    if (this.flipping && this.flip) {
+      this.flip.pose(progress, grab.y, false);
+      return this.renderFlip(rtl);
+    }
     const { width: w, height: h } = this;
 
     // Fold normal: mostly horizontal, tilted by how far the grab sits from
@@ -287,6 +338,20 @@ export class PageCurlRenderer {
     gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_SHORT, 0);
   }
 
+  /**
+   * Draw the flipped sheet over the transparent canvas; where it has lifted
+   * away, the live (already turned) page shows through underneath.
+   */
+  private renderFlip(rtl: boolean) {
+    const gl = this.gl;
+    if (!gl || !this.flip) return;
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    this.flip.draw(0, rtl);
+    // biome-ignore lint/correctness/useHookAtTopLevel: WebGL API, not a React hook
+    gl.useProgram(this.program);
+  }
+
   /** Read back a pixel (device px, origin top-left) — used by tests. */
   readPixel(x: number, y: number): [number, number, number, number] {
     const gl = this.gl;
@@ -307,5 +372,8 @@ export class PageCurlRenderer {
     this.canvas?.remove();
     this.canvas = null;
     this.gl = null;
+    this.program = null;
+    this.flip = null;
+    this.flipping = false;
   }
 }

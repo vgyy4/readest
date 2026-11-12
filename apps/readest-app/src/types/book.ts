@@ -291,7 +291,8 @@ export interface BookLanguage {
 
 // 'push' slides the whole strip; 'slide' and 'curl' layer the outgoing page
 // over the still incoming page (Apple Books style, needs View Transitions).
-export type PageTurnStyle = 'push' | 'slide' | 'curl';
+// 'flip' lifts the whole sheet over the spine; the apps' captured turn draws it.
+export type PageTurnStyle = 'push' | 'slide' | 'curl' | 'flip';
 export interface ViewConfig {
   sideBarTab: string;
   uiLanguage: string;

@@ -65,6 +65,8 @@ export interface CapturedTurnHost {
   onCovered?: (style: CapturedTurnStyle, surfaceAlreadyPainted: boolean) => void | Promise<void>;
   /** Called under the restored flat frame before a cancelled turn is removed. */
   onCancelled?: (style: CapturedTurnStyle) => void | Promise<void>;
+  /** Page Flip is the chosen style: the whole sheet lifts over the spine instead of curling. */
+  isPageFlip?: () => boolean;
   /** Instant (animation-less) page turn of the live view. */
   navigate: (forward: boolean) => Promise<void>;
 }
@@ -76,6 +78,14 @@ interface TurnRenderer {
   attach(container: HTMLElement, width: number, height: number, dpr?: number): void;
   setTexture(source: ImageBitmap): void;
   setBackdrop?(source: TexImageSource): void;
+  /** Built to draw Page Flip, which needs its own GPU context. */
+  readonly pageFlip?: boolean;
+  /** Turn as a Page Flip where the surface can; returns whether it will. */
+  setFlip?(flip: boolean): boolean;
+  /** Release a Page Flip to its own physics; false when the turn does not flip. */
+  release?(commit: boolean): boolean;
+  /** Step and draw a released Page Flip; false once it has settled. */
+  advance?(seconds: number, rtl: boolean): boolean;
   /** Whether an idle GPU surface survived context eviction. */
   isUsable?(): boolean;
   render(progress: number, grab: CurlGrab, rtl: boolean): void;
@@ -701,6 +711,7 @@ export class CapturedPageTurn {
     // First frame draws the captured page exactly covering the content box,
     // hiding the instant page swap happening underneath.
     try {
+      renderer.setFlip?.(this.#pageFlip(style));
       renderer.render(0, this.#grab(active), active.rendererRtl);
       if (renderer.isUsable?.() === false) {
         throw new Error('Captured page-turn renderer became unavailable before navigation');
@@ -753,6 +764,11 @@ export class CapturedPageTurn {
     }
   }
 
+  /** Whether this turn should flip its page rather than curl it. */
+  #pageFlip(style: CapturedTurnStyle) {
+    return style === 'curl' && this.#host.isPageFlip?.() === true;
+  }
+
   #grab(active: ActiveTurn) {
     return { x: active.rendererRtl ? 0 : 1, y: active.grabY };
   }
@@ -777,6 +793,7 @@ export class CapturedPageTurn {
       hostElement.isConnected &&
       cached.dpr === dpr &&
       cached.style === style &&
+      (cached.renderer.pageFlip ?? false) === this.#pageFlip(style) &&
       cached.renderer.isUsable?.() !== false &&
       sameCaptureRect(cached.rect, rect)
     ) {
@@ -916,7 +933,10 @@ export class CapturedPageTurn {
     const renderer: TurnRenderer =
       style === 'slide'
         ? new PageSlideRenderer()
-        : new PageCurlRenderer({ preserveDrawingBuffer: false });
+        : new PageCurlRenderer({
+            preserveDrawingBuffer: false,
+            pageFlip: this.#pageFlip(style),
+          });
     overlay.setAttribute('aria-hidden', 'true');
     overlay.dataset['capturedTurnPrepared'] = String(preMount);
     Object.assign(overlay.style, {
@@ -989,6 +1009,7 @@ export class CapturedPageTurn {
       !hostElement.isConnected ||
       prepared.dpr !== dpr ||
       prepared.style !== style ||
+      (prepared.renderer.pageFlip ?? false) !== this.#pageFlip(style) ||
       prepared.renderer.isUsable?.() === false ||
       !sameCaptureRect(prepared.rect, rect)
     ) {
@@ -1107,12 +1128,33 @@ export class CapturedPageTurn {
     if (surface) this.#disposeSurface(surface);
   }
 
+  /** Let a released Page Flip settle on its own physics, then lay it flat at `target`. */
+  #settleFlip(active: ActiveTurn, target: number, resolve: () => void) {
+    active.finish = resolve;
+    let last = 0;
+    const step = (now: number) => {
+      if (this.#active !== active) return resolve();
+      const moving = active.renderer.advance!(last ? (now - last) / 1000 : 0, active.rendererRtl);
+      last = now;
+      if (moving) {
+        active.raf = requestAnimationFrame(step);
+        return;
+      }
+      active.progress = target;
+      active.renderer.render(target, this.#grab(active), active.rendererRtl);
+      active.finish = null;
+      resolve();
+    };
+    active.raf = requestAnimationFrame(step);
+  }
+
   /** Animate the active turn from its current progress to `target`. */
   #playTo(active: ActiveTurn, target: number, releaseVelocity = 0): Promise<void> {
     return new Promise((resolve) => {
       const from = active.progress;
       const span = target - from;
       if (span === 0) return resolve();
+      if (active.renderer.release?.(target === 1)) return this.#settleFlip(active, target, resolve);
       const towardTarget = releaseVelocity * span > 0;
       const { minSpeed, maxSpeed, maxPlaybackRate } = RELEASE_SETTLE_CONFIG[active.style];
       const speedRange = maxSpeed - minSpeed;
