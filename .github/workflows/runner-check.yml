@@ -1,0 +1,26 @@
+name: Runner check
+
+# Diagnostic: which hosted runners does this repository actually get?
+on:
+  workflow_dispatch:
+  push:
+    branches: [ccr-03f565fc-tppj75]
+    paths: ['.github/workflows/runner-check.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, macos-26, macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - run: |
+          uname -a
+          sw_vers || true
+          xcodebuild -version || true
+          ls /Applications | grep -i xcode || true
