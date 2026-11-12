@@ -12,7 +12,12 @@ permissions:
 
 jobs:
   build-ios:
-    runs-on: macos-14
+    # Two runner images: whichever one GitHub can schedule produces the IPA.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
@@ -77,6 +82,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Readest-unsigned-ipa
+          name: Readest-unsigned-ipa-${{ matrix.os }}
           path: Readest-unsigned.ipa
           if-no-files-found: error
