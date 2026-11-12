@@ -3,6 +3,7 @@ import { CustomFont } from '@/styles/fonts';
 import { CustomTexture } from '@/styles/textures';
 import { HighlightColor, HighlightStyle, UserHighlightColor, ViewSettings } from './book';
 import { OPDSCatalog } from './opds';
+import type { BookshelfDefinition } from './bookshelf';
 import type { AISettings } from '@/services/ai/types';
 import type { NotebookTab } from '@/store/notebookStore';
 import type { DictionarySettings, ImportedDictionary } from '@/services/dictionaries/types';
@@ -426,6 +427,8 @@ export interface SystemSettings {
   librarySkeuomorphicCovers: boolean;
   /** Show the recently-read carousel at the top of the library (issue #3797). */
   libraryRecentShelfEnabled: boolean;
+  /** Configurable library shelves; undefined until the user first manages them. */
+  libraryBookshelves?: BookshelfDefinition[];
   /**
    * Library page background texture, configured independently from the reader
    * background (issue #4743). When any of these is undefined the library

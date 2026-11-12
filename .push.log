@@ -1,0 +1,222 @@
+$ pnpm -w format:check
+$ biome format .
+Checked 2032 files in 1678ms. No fixes applied.
+$ tsgo --noEmit && biome lint .
+Checked 1995 files in 2s. No fixes applied.
+$ dotenv -e .env -e .env.test.local -- vitest
+
+ RUN  v4.1.10 /home/user/readest/apps/readest-app
+
+Browserslist: browsers data (caniuse-lite) is 6 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+ ❯ src/__tests__/services/novel/novel-import.test.ts (9 tests | 5 failed) 795ms
+     × builds a multi-chapter EPUB in reading order 249ms
+     × strips images from chapter content 96ms
+     × keeps going when a chapter fails and inserts a placeholder 93ms
+     × embeds a fetched cover image 91ms
+     × falls back to a generated SVG cover 73ms
+ ❯ src/__tests__/document/series-metadata.test.ts (7 tests | 1 failed) 654ms
+       × extracts displayable ComicInfo.xml schema fields from nested archives 11ms
+ ❯ src/__tests__/libs/document.test.ts (8 tests | 3 failed) 537ms
+     × opens a raw .txt by converting it to EPUB in-memory 171ms
+     × opens a .txt whose MIME carries a charset param and whose name lacks the ext 13ms
+     × opens a .txt with an uppercase extension and a generic MIME 9ms
+ ❯ src/__tests__/document/document-loader-epub-undeclared-cover.test.ts (5 tests | 1 failed) 245ms
+     × falls back to a cover-named zip entry missing from the manifest 179ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 10 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/document/document-loader-epub-undeclared-cover.test.ts > EPUB cover fallback for undeclared zip entries > falls back to a cover-named zip entry missing from the manifest
+AssertionError: expected Uint8Array[ 91, 111, 98, 106, …(-87) ] to deeply equal Uint8Array[ 255, 216, 255, 224, …(8) ]
+
+- Expected
++ Received
+
+  Uint8Array [
+-   255,
+-   216,
+-   255,
+-   224,
+-   1,
+-   2,
+-   3,
+-   4,
++   91,
++   111,
++   98,
++   106,
++   101,
++   99,
++   116,
++   32,
++   66,
++   108,
++   111,
++   98,
++   93,
+  ]
+
+ ❯ src/__tests__/document/document-loader-epub-undeclared-cover.test.ts:78:56
+     76|     expect(cover).not.toBeNull();
+     77|     expect(cover!.type).toBe('image/jpeg');
+     78|     expect(new Uint8Array(await cover!.arrayBuffer())).toEqual(COVER_B…
+       |                                                        ^
+     79|   });
+     80|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/10]⎯
+
+ FAIL  src/__tests__/document/series-metadata.test.ts > Calibre series metadata > CBZ (ComicInfo.xml + ComicBookInfo) > extracts displayable ComicInfo.xml schema fields from nested archives
+TypeError: Cannot read properties of null (reading 'metadata')
+ ❯ src/__tests__/document/series-metadata.test.ts:143:26
+    141|       const result = await loader.open();
+    142|
+    143|       expect(result.book.metadata).toMatchObject({
+       |                          ^
+    144|         title: 'Example Title',
+    145|         author: 'Example Author',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/10]⎯
+
+ FAIL  src/__tests__/libs/document.test.ts > DocumentLoader.open > opens a raw .txt by converting it to EPUB in-memory
+AssertionError: expected null to be truthy
+
+- Expected:
+true
+
++ Received:
+null
+
+ ❯ src/__tests__/libs/document.test.ts:70:25
+     68|     const result = await new DocumentLoader(file).open();
+     69|
+     70|     expect(result.book).toBeTruthy();
+       |                         ^
+     71|     expect(result.format).toBe('EPUB');
+     72|   }, 15000);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/10]⎯
+
+ FAIL  src/__tests__/libs/document.test.ts > DocumentLoader.open > opens a .txt whose MIME carries a charset param and whose name lacks the ext
+AssertionError: expected null to be truthy
+
+- Expected:
+true
+
++ Received:
+null
+
+ ❯ src/__tests__/libs/document.test.ts:84:25
+     82|     const result = await new DocumentLoader(file).open();
+     83|
+     84|     expect(result.book).toBeTruthy();
+       |                         ^
+     85|     expect(result.format).toBe('EPUB');
+     86|   }, 15000);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/10]⎯
+
+ FAIL  src/__tests__/libs/document.test.ts > DocumentLoader.open > opens a .txt with an uppercase extension and a generic MIME
+AssertionError: expected null to be truthy
+
+- Expected:
+true
+
++ Received:
+null
+
+ ❯ src/__tests__/libs/document.test.ts:93:25
+     91|     const result = await new DocumentLoader(file).open();
+     92|
+     93|     expect(result.book).toBeTruthy();
+       |                         ^
+     94|     expect(result.format).toBe('EPUB');
+     95|   }, 15000);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/10]⎯
+
+ FAIL  src/__tests__/services/novel/novel-import.test.ts > downloadNovel > builds a multi-chapter EPUB in reading order
+Error: File format is not recognized
+ ❯ ZipReader.getEntriesGenerator ../../node_modules/.pnpm/@zip.js+zip.js@2.8.26/node_modules/@zip.js/zip.js/lib/core/zip-reader.js:196:10
+ ❯ ZipReader.getEntries ../../node_modules/.pnpm/@zip.js+zip.js@2.8.26/node_modules/@zip.js/zip.js/lib/core/zip-reader.js:411:20
+ ❯ unzipEpub src/__tests__/services/novel/novel-import.test.ts:11:19
+      9|   const { BlobReader, ZipReader, TextWriter } = await import('@zip.js/…
+     10|   const reader = new ZipReader(new BlobReader(blob));
+     11|   const entries = await reader.getEntries();
+       |                   ^
+     12|   const out = new Map<string, string>();
+     13|   for (const entry of entries) {
+ ❯ src/__tests__/services/novel/novel-import.test.ts:94:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/10]⎯
+
+ FAIL  src/__tests__/services/novel/novel-import.test.ts > downloadNovel > strips images from chapter content
+Error: File format is not recognized
+ ❯ ZipReader.getEntriesGenerator ../../node_modules/.pnpm/@zip.js+zip.js@2.8.26/node_modules/@zip.js/zip.js/lib/core/zip-reader.js:196:10
+ ❯ ZipReader.getEntries ../../node_modules/.pnpm/@zip.js+zip.js@2.8.26/node_modules/@zip.js/zip.js/lib/core/zip-reader.js:411:20
+ ❯ unzipEpub src/__tests__/services/novel/novel-import.test.ts:11:19
+      9|   const { BlobReader, ZipReader, TextWriter } = await import('@zip.js/…
+     10|   const reader = new ZipReader(new BlobReader(blob));
+     11|   const entries = await reader.getEntries();
+       |                   ^
+     12|   const out = new Map<string, string>();
+     13|   for (const entry of entries) {
+ ❯ src/__tests__/services/novel/novel-import.test.ts:116:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/10]⎯
+
+ FAIL  src/__tests__/services/novel/novel-import.test.ts > downloadNovel > keeps going when a chapter fails and inserts a placeholder
+Error: File format is not recognized
+ ❯ ZipReader.getEntriesGenerator ../../node_modules/.pnpm/@zip.js+zip.js@2.8.26/node_modules/@zip.js/zip.js/lib/core/zip-reader.js:196:10
+ ❯ ZipReader.getEntries ../../node_modules/.pnpm/@zip.js+zip.js@2.8.26/node_modules/@zip.js/zip.js/lib/core/zip-reader.js:411:20
+ ❯ unzipEpub src/__tests__/services/novel/novel-import.test.ts:11:19
+      9|   const { BlobReader, ZipReader, TextWriter } = await import('@zip.js/…
+     10|   const reader = new ZipReader(new BlobReader(blob));
+     11|   const entries = await reader.getEntries();
+       |                   ^
+     12|   const out = new Map<string, string>();
+     13|   for (const entry of entries) {
+ ❯ src/__tests__/services/novel/novel-import.test.ts:126:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/10]⎯
+
+ FAIL  src/__tests__/services/novel/novel-import.test.ts > downloadNovel > embeds a fetched cover image
+Error: File format is not recognized
+ ❯ ZipReader.getEntriesGenerator ../../node_modules/.pnpm/@zip.js+zip.js@2.8.26/node_modules/@zip.js/zip.js/lib/core/zip-reader.js:196:10
+ ❯ ZipReader.getEntries ../../node_modules/.pnpm/@zip.js+zip.js@2.8.26/node_modules/@zip.js/zip.js/lib/core/zip-reader.js:411:20
+ ❯ unzipEpub src/__tests__/services/novel/novel-import.test.ts:11:19
+      9|   const { BlobReader, ZipReader, TextWriter } = await import('@zip.js/…
+     10|   const reader = new ZipReader(new BlobReader(blob));
+     11|   const entries = await reader.getEntries();
+       |                   ^
+     12|   const out = new Map<string, string>();
+     13|   for (const entry of entries) {
+ ❯ src/__tests__/services/novel/novel-import.test.ts:166:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/10]⎯
+
+ FAIL  src/__tests__/services/novel/novel-import.test.ts > downloadNovel > falls back to a generated SVG cover
+Error: File format is not recognized
+ ❯ ZipReader.getEntriesGenerator ../../node_modules/.pnpm/@zip.js+zip.js@2.8.26/node_modules/@zip.js/zip.js/lib/core/zip-reader.js:196:10
+ ❯ ZipReader.getEntries ../../node_modules/.pnpm/@zip.js+zip.js@2.8.26/node_modules/@zip.js/zip.js/lib/core/zip-reader.js:411:20
+ ❯ unzipEpub src/__tests__/services/novel/novel-import.test.ts:11:19
+      9|   const { BlobReader, ZipReader, TextWriter } = await import('@zip.js/…
+     10|   const reader = new ZipReader(new BlobReader(blob));
+     11|   const entries = await reader.getEntries();
+       |                   ^
+     12|   const out = new Map<string, string>();
+     13|   for (const entry of entries) {
+ ❯ src/__tests__/services/novel/novel-import.test.ts:176:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/10]⎯
+
+
+ Test Files  4 failed | 703 passed | 4 skipped (711)
+      Tests  10 failed | 8947 passed | 16 skipped (8973)
+   Start at  16:57:26
+   Duration  242.69s (transform 28.23s, setup 3.90s, import 121.13s, tests 72.66s, environment 416.73s)
+
+[ELIFECYCLE] Test failed. See above for more details.
+husky - pre-push script failed (code 1)
+error: failed to push some refs to 'https://github.com/vgyy4/readest'

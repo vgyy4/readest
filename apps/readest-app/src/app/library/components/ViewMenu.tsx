@@ -12,6 +12,7 @@ import {
 } from '@/types/settings';
 import { saveSysSettings } from '@/helpers/settings';
 import { navigateToLibrary } from '@/utils/nav';
+import { eventDispatcher } from '@/utils/event';
 import NumberInput from '@/components/settings/NumberInput';
 import MenuItem from '@/components/MenuItem';
 import Menu from '@/components/Menu';
@@ -115,12 +116,9 @@ const ViewMenu: React.FC<ViewMenuProps> = ({ setIsDropdownOpen }) => {
     await saveSysSettings(envConfig, 'libraryAutoColumns', newValue);
   };
 
-  const handleToggleRecentShelf = async () => {
-    await saveSysSettings(
-      envConfig,
-      'libraryRecentShelfEnabled',
-      !settings.libraryRecentShelfEnabled,
-    );
+  const handleOpenBookshelves = () => {
+    setIsDropdownOpen?.(false);
+    eventDispatcher.dispatch('open-bookshelves');
   };
 
   const handleSetColumns = async (value: number) => {
@@ -245,14 +243,12 @@ const ViewMenu: React.FC<ViewMenuProps> = ({ setIsDropdownOpen }) => {
         />
       ))}
 
-      {/* Recently read shelf */}
+      {/* Configurable shelves above the library */}
       <hr aria-hidden='true' className='border-base-200 my-1' />
       <MenuItem
-        label={_('Show recently read')}
+        label={_('Bookshelves...')}
         buttonClass='min-h-8 !py-1'
-        toggled={settings.libraryRecentShelfEnabled}
-        onClick={handleToggleRecentShelf}
-        transient
+        onClick={handleOpenBookshelves}
       />
 
       {/* Group By - Collapsible */}

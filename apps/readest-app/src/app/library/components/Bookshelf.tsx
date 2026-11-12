@@ -46,7 +46,6 @@ import {
   resolveEffectiveSecondarySort,
   resolveCurrentShelfBooks,
   selectDownloadableBooks,
-  selectRecentShelfBooks,
   withReadingStatus,
   withTimeRemainingLast,
 } from '../utils/libraryUtils';
@@ -65,7 +64,10 @@ import ShareBookDialog from './ShareBookDialog';
 import { useAuth } from '@/context/AuthContext';
 import GroupingModal from './GroupingModal';
 import SetStatusAlert from './SetStatusAlert';
-import RecentShelf, { RECENT_SHELF_BOOK_COUNT } from './RecentShelf';
+import RecentShelf from './RecentShelf';
+import BookshelvesDialog from './BookshelvesDialog';
+import { resolveBookshelves, RECENT_SHELF_ID } from '@/services/bookshelves/definitions';
+import { selectShelfBooks } from '@/services/bookshelves/evaluate';
 import { useOpenBook } from '../hooks/useOpenBook';
 import LibrarySearchResults from './LibrarySearchResults';
 
@@ -233,6 +235,15 @@ const Bookshelf: React.FC<BookshelfProps> = ({
   const [showDeleteAlert, setShowDeleteAlert] = useState(false);
   const [showStatusAlert, setShowStatusAlert] = useState(false);
   const [showGroupingModal, setShowGroupingModal] = useState(false);
+  const [showBookshelvesDialog, setShowBookshelvesDialog] = useState(false);
+
+  // The View menu asks for the Manage Bookshelves window by event, because the
+  // menu closes (and unmounts) as soon as an item is chosen.
+  useEffect(() => {
+    const open = () => setShowBookshelvesDialog(true);
+    eventDispatcher.on('open-bookshelves', open);
+    return () => eventDispatcher.off('open-bookshelves', open);
+  }, []);
   const [importBookUrl] = useState(searchParams?.get('url') || '');
 
   const abortDeletionRef = useRef(false);
@@ -285,10 +296,28 @@ const Bookshelf: React.FC<BookshelfProps> = ({
     return queryTerm ? libraryBooks.filter((book) => bookFilter(book)) : libraryBooks;
   }, [libraryBooks, queryTerm]);
 
+  // Configurable shelves shown above the library. Exclusive shelves take their
+  // books out of the main list below; search still looks through everything.
+  const bookshelves = useMemo(
+    () => resolveBookshelves(settings.libraryBookshelves, settings.libraryRecentShelfEnabled),
+    [settings.libraryBookshelves, settings.libraryRecentShelfEnabled],
+  );
+  const shelfSelection = useMemo(
+    () => selectShelfBooks(libraryBooks, bookshelves, uiLanguage),
+    [libraryBooks, bookshelves, uiLanguage],
+  );
+  const browsableBooks = useMemo(
+    () =>
+      shelfSelection.ownedHashes.size > 0
+        ? libraryBooks.filter((book) => !shelfSelection.ownedHashes.has(book.hash))
+        : libraryBooks,
+    [libraryBooks, shelfSelection],
+  );
+
   const manualGroupName = groupBy === LibraryGroupByType.Group ? getGroupName(groupId) : undefined;
   const currentShelfBooks = useMemo(
-    () => resolveCurrentShelfBooks(libraryBooks, groupBy, groupId, manualGroupName),
-    [libraryBooks, groupBy, groupId, manualGroupName],
+    () => resolveCurrentShelfBooks(browsableBooks, groupBy, groupId, manualGroupName),
+    [browsableBooks, groupBy, groupId, manualGroupName],
   );
   const filteredShelfBooks = useMemo(() => {
     const bookFilter = createBookFilter(queryTerm);
@@ -794,41 +823,51 @@ const Bookshelf: React.FC<BookshelfProps> = ({
     [openBook],
   );
 
-  // Flat recency slice of the whole library, independent of the main shelf's
-  // sort/grouping. Built from `libraryBooks` (not the sorted/filtered items).
-  const recentBooks = useMemo(
-    () => selectRecentShelfBooks(libraryBooks, RECENT_SHELF_BOOK_COUNT),
-    [libraryBooks],
+  // Top-level shelves: hidden while searching, inside a group, or when a shelf
+  // matches nothing. They stay up in select mode so shelf books can be selected
+  // in place, just like the grid.
+  const visibleShelves = useMemo(
+    () =>
+      queryTerm || groupId
+        ? []
+        : bookshelves
+            .map((shelf) => ({ shelf, books: shelfSelection.booksByShelf.get(shelf.id) ?? [] }))
+            .filter(({ books }) => books.length > 0),
+    [queryTerm, groupId, bookshelves, shelfSelection],
   );
-
-  // A top-level quick-resume strip: hidden while searching, inside a group, or
-  // when nothing has been read yet. It stays up in select mode so shelf books
-  // can be selected in place, just like the grid.
-  const showRecentShelf =
-    settings.libraryRecentShelfEnabled && !queryTerm && !groupId && recentBooks.length > 0;
 
   const recentShelfHeader = useMemo(
     () =>
-      showRecentShelf ? (
-        <RecentShelf
-          books={recentBooks}
-          coverFit={coverFit as LibraryCoverFitType}
-          autoColumns={settings.libraryAutoColumns}
-          fixedColumns={settings.libraryColumns}
-          isSelectMode={isSelectMode}
-          selectedBooks={selectedBookSet}
-          onOpenBook={openRecentBook}
-          toggleSelection={toggleSelection}
-          handleSetSelectMode={handleSetSelectMode}
-          handleBookUpload={handleBookUpload}
-          handleBookDownload={handleBookDownload}
-          showBookDetailsModal={handleShowDetailsBook}
-          showTimeRemaining={showTimeRemaining}
-        />
+      visibleShelves.length > 0 ? (
+        <>
+          {visibleShelves.map(({ shelf, books }) => (
+            <RecentShelf
+              key={shelf.id}
+              title={
+                shelf.builtin === RECENT_SHELF_ID && shelf.name === 'Recently read'
+                  ? _('Recently read')
+                  : shelf.name
+              }
+              books={books}
+              coverFit={coverFit as LibraryCoverFitType}
+              autoColumns={settings.libraryAutoColumns}
+              fixedColumns={settings.libraryColumns}
+              isSelectMode={isSelectMode}
+              selectedBooks={selectedBookSet}
+              onOpenBook={openRecentBook}
+              toggleSelection={toggleSelection}
+              handleSetSelectMode={handleSetSelectMode}
+              handleBookUpload={handleBookUpload}
+              handleBookDownload={handleBookDownload}
+              showBookDetailsModal={handleShowDetailsBook}
+              showTimeRemaining={showTimeRemaining}
+            />
+          ))}
+        </>
       ) : null,
     [
-      showRecentShelf,
-      recentBooks,
+      _,
+      visibleShelves,
       coverFit,
       settings.libraryAutoColumns,
       settings.libraryColumns,
@@ -1072,6 +1111,15 @@ const Bookshelf: React.FC<BookshelfProps> = ({
               setShowGroupingModal(false);
               handleSetSelectMode(false);
             }}
+          />
+        </ModalPortal>
+      )}
+      {showBookshelvesDialog && (
+        <ModalPortal>
+          <BookshelvesDialog
+            books={libraryBooks}
+            uiLanguage={uiLanguage}
+            onClose={() => setShowBookshelvesDialog(false)}
           />
         </ModalPortal>
       )}

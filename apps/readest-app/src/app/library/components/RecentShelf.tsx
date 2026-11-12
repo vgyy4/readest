@@ -15,6 +15,8 @@ export const RECENT_SHELF_BOOK_COUNT = 12;
 
 interface RecentShelfProps {
   books: Book[];
+  /** Heading above the strip; defaults to "Recently read". */
+  title?: string;
   coverFit: LibraryCoverFitType;
   // Mirror the bookshelf grid's column model so covers are the same size.
   autoColumns: boolean;
@@ -142,6 +144,7 @@ const RecentSlide: React.FC<RecentSlideProps> = ({
  */
 const RecentShelf: React.FC<RecentShelfProps> = ({
   books,
+  title,
   coverFit,
   autoColumns,
   fixedColumns,
@@ -216,7 +219,7 @@ const RecentShelf: React.FC<RecentShelfProps> = ({
     // Virtuoso Header — a sibling of the book list, not a descendant.
     <div className='recent-shelf transform-wrapper select-none pt-3'>
       <h3 className='text-base-content/60 mb-1 ps-4 text-xs font-medium sm:ps-6'>
-        {_('Recently read')}
+        {title ?? _('Recently read')}
       </h3>
       <div className='relative'>
         {/* Horizontal-only scroll; px insets + gap mirror the grid. */}
