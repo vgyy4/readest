@@ -1,0 +1,82 @@
+name: iOS unsigned IPA
+
+# Builds an UNSIGNED Readest .ipa for sideloading (Sideloadly / AltStore re-sign it
+# with your own Apple ID). Minimum iOS is 15.0 on this branch.
+on:
+  workflow_dispatch:
+  push:
+    branches: [ccr-03f565fc-tppj75]
+
+permissions:
+  contents: read
+
+jobs:
+  build-ios:
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout submodules (skip the unrelated gstack one)
+        run: |
+          git config submodule.apps/readest-app/.claude/skills/gstack.update none
+          git submodule update --init --recursive --depth 1 || git submodule update --init --recursive
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          target: aarch64-apple-ios
+          cache: false
+
+      - name: Install dependencies
+        working-directory: apps/readest-app
+        run: pnpm install --frozen-lockfile && pnpm setup-vendors
+
+      # xcodebuild reads XCODE_XCCONFIG_FILE and applies it over every project
+      # setting, which switches code signing off without editing the project.
+      - name: Disable code signing
+        run: |
+          cat > "$RUNNER_TEMP/nosign.xcconfig" <<'EOF'
+          CODE_SIGNING_ALLOWED = NO
+          CODE_SIGNING_REQUIRED = NO
+          CODE_SIGN_IDENTITY =
+          DEVELOPMENT_TEAM =
+          PROVISIONING_PROFILE_SPECIFIER =
+          EOF
+          echo "XCODE_XCCONFIG_FILE=$RUNNER_TEMP/nosign.xcconfig" >> "$GITHUB_ENV"
+
+      - name: Build iOS app
+        working-directory: apps/readest-app
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        # Archive is produced before Tauri tries to export a signed IPA, and that
+        # export is expected to fail without a signing identity.
+        run: pnpm tauri ios build --ci || echo "tauri export step failed (expected without signing)"
+
+      - name: Package unsigned IPA
+        run: |
+          APP=$(find apps/readest-app/src-tauri/gen/apple -type d -name 'Readest.app' -path '*Products/Applications*' | head -1)
+          if [ -z "$APP" ]; then
+            APP=$(find apps/readest-app/src-tauri/gen/apple -type d -name 'Readest.app' | head -1)
+          fi
+          echo "App bundle: $APP"
+          test -n "$APP"
+          mkdir -p ipa/Payload
+          cp -R "$APP" ipa/Payload/
+          (cd ipa && zip -qry ../Readest-unsigned.ipa Payload)
+          ls -lh Readest-unsigned.ipa
+          /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "ipa/Payload/Readest.app/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "ipa/Payload/Readest.app/Info.plist"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Readest-unsigned-ipa
+          path: Readest-unsigned.ipa
+          if-no-files-found: error
