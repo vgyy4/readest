@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { PROFILE_HEADER } from '@/libs/profiles/shared';
 import { createSupabaseAdminClient } from '@/utils/supabase';
 import { corsAllMethods, runMiddleware } from '@/utils/cors';
 import {
@@ -24,8 +25,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { user, token } = await validateUserAndToken(req.headers['authorization']);
-  if (!user || !token) {
+  const { user, token, isProfile } = await validateUserAndToken(
+    req.headers['authorization'],
+    req.headers[PROFILE_HEADER],
+  );
+  if (!user || !token || isProfile) {
     return res.status(403).json({ error: 'Not authenticated' });
   }
 

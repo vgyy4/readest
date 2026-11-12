@@ -1,5 +1,6 @@
 import { jwtDecode } from 'jwt-decode';
-import { supabase } from '@/utils/supabase';
+import { createSupabaseAdminClient, supabase } from '@/utils/supabase';
+import { resolveProfileUser } from '@/libs/profiles/shared';
 import { UserPlan } from '@/types/quota';
 import { DEFAULT_DAILY_TRANSLATION_QUOTA, DEFAULT_STORAGE_QUOTA } from '@/services/constants';
 import { isWebAppPlatform } from '@/services/environment';
@@ -171,7 +172,26 @@ export const getUserID = async (): Promise<string | null> => {
   return data?.session?.user?.id ?? null;
 };
 
-export const validateUserAndToken = async (authHeader: string | null | undefined) => {
+const isProfileOf = async (ownerId: string, profileId: string) => {
+  const { data, error } = await createSupabaseAdminClient()
+    .from('profiles')
+    .select('profile_user_id')
+    .eq('owner_id', ownerId)
+    .eq('profile_user_id', profileId)
+    .maybeSingle();
+  return !error && !!data;
+};
+
+/**
+ * Check the bearer token. With a `profileHeader` (X-Readest-Profile) the
+ * returned `user` is that profile's user, so the data routes read and write the
+ * profile's own rows; `ownerId` stays the signed-in account. A profile the
+ * account does not own is treated as not authenticated.
+ */
+export const validateUserAndToken = async (
+  authHeader: string | null | undefined,
+  profileHeader?: string | string[] | null,
+) => {
   if (!authHeader) return {};
 
   const token = authHeader.replace('Bearer ', '');
@@ -181,5 +201,15 @@ export const validateUserAndToken = async (authHeader: string | null | undefined
   } = await supabase.auth.getUser(token);
 
   if (error || !user) return {};
-  return { user, token };
+  const profileId = Array.isArray(profileHeader) ? profileHeader[0] : profileHeader;
+  if (!profileId) return { user, token, ownerId: user.id, isProfile: false };
+
+  const resolved = await resolveProfileUser(user.id, profileId, isProfileOf);
+  if (!resolved) return {};
+  return {
+    user: resolved.isProfile ? { ...user, id: resolved.userId } : user,
+    token,
+    ownerId: user.id,
+    isProfile: resolved.isProfile,
+  };
 };

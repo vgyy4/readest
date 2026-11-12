@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { PROFILE_HEADER } from '@/libs/profiles/shared';
 import { createSupabaseAdminClient } from '@/utils/supabase';
 import { corsAllMethods, runMiddleware } from '@/utils/cors';
 import { getDownloadSignedUrl } from '@/utils/object';
@@ -12,7 +13,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const { user, token } = await validateUserAndToken(req.headers['authorization']);
+    const { user, token, ownerId, isProfile } = await validateUserAndToken(
+      req.headers['authorization'],
+      req.headers[PROFILE_HEADER],
+    );
     if (!user || !token) {
       return res.status(403).json({ error: 'Not authenticated' });
     }
@@ -34,7 +38,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: 'Missing or invalid fileKey' });
       }
 
-      const downloadUrlsMap = await processFileKeys([fileKey], user.id);
+      const downloadUrlsMap = await processFileKeys(
+        [fileKey],
+        user.id,
+        isProfile ? ownerId : undefined,
+      );
       const downloadUrl = downloadUrlsMap[fileKey];
 
       if (!downloadUrl) {
@@ -59,7 +67,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: 'All fileKeys must be strings' });
       }
 
-      const downloadUrls = await processFileKeys(fileKeys, user.id);
+      const downloadUrls = await processFileKeys(
+        fileKeys,
+        user.id,
+        isProfile ? ownerId : undefined,
+      );
 
       return res.status(200).json({ downloadUrls });
     }
@@ -69,16 +81,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 }
 
+/**
+ * Signed download URLs for `fileKeys`. A profile (`ownerId` set) has no files of
+ * its own: it downloads the account owner's files, but only for books the owner
+ * has granted it, i.e. books with a live row under the profile's user.
+ */
 async function processFileKeys(
   fileKeys: string[],
   userId: string,
+  ownerId?: string,
 ): Promise<Record<string, string | undefined>> {
   const supabase = createSupabaseAdminClient();
 
   const { data: fileRecords, error: fileError } = await supabase
     .from('files')
     .select('user_id, file_key, book_hash')
-    .eq('user_id', userId)
+    .eq('user_id', ownerId ?? userId)
     .in('file_key', fileKeys)
     .is('deleted_at', null);
 
@@ -112,7 +130,7 @@ async function processFileKeys(
       const { data: fallbackRecords, error: fallbackError } = await supabase
         .from('files')
         .select('user_id, file_key, book_hash')
-        .eq('user_id', userId)
+        .eq('user_id', ownerId ?? userId)
         .in('book_hash', bookHashes)
         .is('deleted_at', null);
 
@@ -131,6 +149,22 @@ async function processFileKeys(
     }
   }
 
+  if (ownerId) {
+    const hashes = [
+      ...new Set([...fileRecordMap.values()].map((r) => r.book_hash).filter(Boolean)),
+    ];
+    const { data: granted, error: grantError } = await supabase
+      .from('books')
+      .select('book_hash')
+      .eq('user_id', userId)
+      .in('book_hash', hashes as string[])
+      .is('deleted_at', null);
+    const grantedHashes = new Set(grantError ? [] : (granted ?? []).map((b) => b.book_hash));
+    for (const [key, record] of fileRecordMap) {
+      if (!record.book_hash || !grantedHashes.has(record.book_hash)) fileRecordMap.delete(key);
+    }
+  }
+
   const results = await Promise.allSettled(
     fileKeys.map(async (fileKey) => {
       const fileRecord = fileRecordMap.get(fileKey);
@@ -139,7 +173,7 @@ async function processFileKeys(
         return { fileKey, downloadUrl: undefined };
       }
 
-      if (fileRecord.user_id !== userId) {
+      if (fileRecord.user_id !== (ownerId ?? userId)) {
         return { fileKey, downloadUrl: undefined };
       }
 

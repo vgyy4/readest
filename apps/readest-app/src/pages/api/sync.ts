@@ -1,7 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { NextRequest, NextResponse } from 'next/server';
 import { PostgrestError } from '@supabase/supabase-js';
-import { createSupabaseClient } from '@/utils/supabase';
+import { createSupabaseAdminClient, createSupabaseClient } from '@/utils/supabase';
+import { PROFILE_HEADER } from '@/libs/profiles/shared';
 import { BookDataRecord } from '@/types/book';
 import { transformBookConfigToDB } from '@/utils/transform';
 import { transformBookNoteToDB } from '@/utils/transform';
@@ -180,11 +181,17 @@ type TableName = keyof typeof transformsToDB;
 type DBError = { table: TableName; error: PostgrestError };
 
 export async function GET(req: NextRequest) {
-  const { user, token } = await validateUserAndToken(req.headers.get('authorization'));
+  const { user, token, isProfile } = await validateUserAndToken(
+    req.headers.get('authorization'),
+    req.headers.get(PROFILE_HEADER),
+  );
   if (!user || !token) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 403 });
   }
-  const supabase = createSupabaseClient(token);
+  // A profile's rows belong to its own hidden user, which the caller's token
+  // cannot reach through row-level security; every query below is scoped to
+  // `user.id`, so the service role is safe once the profile is verified.
+  const supabase = isProfile ? createSupabaseAdminClient() : createSupabaseClient(token);
 
   const { searchParams } = new URL(req.url);
   const sinceParam = searchParams.get('since');
@@ -488,11 +495,17 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const { user, token } = await validateUserAndToken(req.headers.get('authorization'));
+  const { user, token, isProfile } = await validateUserAndToken(
+    req.headers.get('authorization'),
+    req.headers.get(PROFILE_HEADER),
+  );
   if (!user || !token) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 403 });
   }
-  const supabase = createSupabaseClient(token);
+  // A profile's rows belong to its own hidden user, which the caller's token
+  // cannot reach through row-level security; every query below is scoped to
+  // `user.id`, so the service role is safe once the profile is verified.
+  const supabase = isProfile ? createSupabaseAdminClient() : createSupabaseClient(token);
   const body = await req.json();
   const { books = [], configs = [], notes = [], statBooks = [], statPages = [] } = body as SyncData;
 

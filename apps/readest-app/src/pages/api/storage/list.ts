@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { createSupabaseAdminClient } from '@/utils/supabase';
 import { corsAllMethods, runMiddleware } from '@/utils/cors';
+import { PROFILE_HEADER } from '@/libs/profiles/shared';
 import { validateUserAndToken } from '@/utils/access';
 
 interface FileRecord {
@@ -51,8 +52,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const { user, token } = await validateUserAndToken(req.headers['authorization']);
-    if (!user || !token) {
+    const { user, token, isProfile } = await validateUserAndToken(
+      req.headers['authorization'],
+      req.headers[PROFILE_HEADER],
+    );
+    if (!user || !token || isProfile) {
       return res.status(403).json({ error: 'Not authenticated' });
     }
 
