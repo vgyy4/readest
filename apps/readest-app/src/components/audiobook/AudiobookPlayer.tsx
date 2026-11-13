@@ -80,6 +80,7 @@ const AudiobookPlayer: React.FC<AudiobookPlayerProps> = ({ book, onBack }) => {
   const player = useAudiobook(book);
   const [sheet, setSheet] = useState<Sheet>(null);
   const [saved, setSaved] = useState(false);
+  const [coverFailed, setCoverFailed] = useState(false);
   const swipe = useRef<number | null>(null);
   const press = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -204,13 +205,14 @@ const AudiobookPlayer: React.FC<AudiobookPlayerProps> = ({ book, onBack }) => {
             else player.previousChapter();
           }}
         >
-          {player.coverUrl ? (
+          {player.coverUrl && !coverFailed ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={player.coverUrl}
               alt={book.title}
               className='h-full w-full object-cover'
               draggable={false}
+              onError={() => setCoverFailed(true)}
             />
           ) : (
             <MdHeadphones size={96} style={{ opacity: 0.35 }} />

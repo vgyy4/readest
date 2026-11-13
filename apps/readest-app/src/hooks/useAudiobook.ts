@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Book, BookNote } from '@/types/book';
 import { useEnv } from '@/context/EnvContext';
@@ -7,7 +7,7 @@ import { useSettingsStore } from '@/store/settingsStore';
 import { getLocalBookFilename, INIT_BOOK_CONFIG } from '@/utils/book';
 import type { BaseDir } from '@/types/system';
 import { withReadingStatus } from '@/app/library/utils/libraryUtils';
-import { parseAudiobook } from '@/libs/audiobook/metadata';
+import { readAudioInfo, writeAudioInfo } from '@/libs/audiobook/infoCache';
 import { createAudiobookSession } from '@/libs/audiobook/session';
 import { invoke } from '@tauri-apps/api/core';
 import {
@@ -25,6 +25,7 @@ import {
   clampSkip,
   clampSpeed,
   DEFAULT_SKIP_SECONDS,
+  fitChapters,
   isUndoableJump,
   Jump,
   JumpKind,
@@ -70,16 +71,18 @@ export const useAudiobook = (book: Book) => {
   const { settings } = useSettingsStore();
   const { updateBook } = useLibraryStore();
 
+  // After the first open everything but the audio itself is remembered (see infoCache).
+  const cached = useMemo(() => readAudioInfo(book.hash), [book.hash]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [src, setSrc] = useState('');
   const [coverUrl, setCoverUrl] = useState(book.coverImageUrl ?? '');
-  const [color, setColor] = useState<CoverColor | null>(null);
-  const [coverBlur, setCoverBlur] = useState<string | null>(null);
+  const [color, setColor] = useState<CoverColor | null>(cached?.color ?? null);
+  const [coverBlur, setCoverBlur] = useState<string | null>(cached?.blur ?? null);
   const [error, setError] = useState('');
-  const [chapters, setChapters] = useState<AudioChapter[]>([]);
+  const [chapters, setChapters] = useState<AudioChapter[]>(cached?.chapters ?? []);
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(cached?.duration ?? 0);
   const [speed, setSpeedState] = useState(1);
   const [skipSeconds, setSkipState] = useState(readSkip);
   const [sleep, setSleepState] = useState<SleepOption>(null);
@@ -89,7 +92,7 @@ export const useAudiobook = (book: Book) => {
   const [now, setNow] = useState(Date.now());
 
   const resume = useRef(0);
-  const latest = useRef({ position: 0, duration: 0 });
+  const latest = useRef({ position: 0, duration: cached?.duration ?? 0 });
   const lastSaved = useRef({ config: 0, library: 0 });
   const chaptersRef = useRef<AudioChapter[]>([]);
   chaptersRef.current = chapters;
@@ -178,13 +181,26 @@ export const useAudiobook = (book: Book) => {
           path = book.filePath;
           base = 'None';
         }
-        const file = await appService.openFile(path, base);
-        const info = await parseAudiobook(file);
-        (file as { close?: () => Promise<void> }).close?.();
+        // A book opened before skips its file: no tags to read, no cover to decode.
+        let info: { duration: number; chapters: AudioChapter[]; cover?: Blob; size: number };
+        if (cached && cached.duration > 0 && cached.size > 0) {
+          info = { duration: cached.duration, chapters: cached.chapters, size: cached.size };
+        } else {
+          const file = await appService.openFile(path, base);
+          const { parseAudiobook } = await import('@/libs/audiobook/metadata');
+          const parsed = await parseAudiobook(file);
+          (file as { close?: () => Promise<void> }).close?.();
+          info = { ...parsed, size: file.size };
+          writeAudioInfo(book.hash, {
+            duration: info.duration,
+            size: info.size,
+            chapters: info.chapters,
+          });
+        }
         const tauri = appService.appPlatform === 'tauri';
         const absPath = tauri ? await appService.resolveFilePath(path, base) : '';
         planRef.current = {
-          order: playbackPlan({ tauri, ios: !!appService.isIOSApp, size: file.size }),
+          order: playbackPlan({ tauri, ios: !!appService.isIOSApp, size: info.size }),
           index: 0,
           path,
           base,
@@ -220,10 +236,18 @@ export const useAudiobook = (book: Book) => {
   }, [book.hash, appService]);
 
   useEffect(() => {
-    if (!coverUrl) return;
+    if (!coverUrl || (cached?.color && cached.blur)) return;
     let cancelled = false;
-    void sampleCoverColor(coverUrl).then((c) => !cancelled && setColor(c));
-    void blurredCoverUrl(coverUrl).then((u) => !cancelled && setCoverBlur(u));
+    void sampleCoverColor(coverUrl).then((c) => {
+      if (cancelled) return;
+      setColor(c);
+      writeAudioInfo(book.hash, { color: c });
+    });
+    void blurredCoverUrl(coverUrl).then((u) => {
+      if (cancelled) return;
+      setCoverBlur(u);
+      if (u) writeAudioInfo(book.hash, { blur: u });
+    });
     return () => {
       cancelled = true;
     };
@@ -447,6 +471,7 @@ export const useAudiobook = (book: Book) => {
       if (Number.isFinite(audio.duration) && audio.duration > 0) {
         setDuration(audio.duration);
         latest.current.duration = audio.duration;
+        setChapters((list) => fitChapters(list, audio.duration));
       }
       audio.playbackRate = speed;
       if (resume.current > 0) audio.currentTime = clampPosition(resume.current, audio.duration);

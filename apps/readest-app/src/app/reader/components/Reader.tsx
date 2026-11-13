@@ -3,6 +3,7 @@
 import clsx from 'clsx';
 import * as React from 'react';
 import { useEffect, Suspense } from 'react';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 
 import { useEnv } from '@/context/EnvContext';
@@ -30,7 +31,6 @@ import { ProofreadRulesManager } from './ProofreadRules';
 import { Toast } from '@/components/Toast';
 import { getLocale } from '@/utils/misc';
 import { initDayjs } from '@/utils/time';
-import ReaderContent from './ReaderContent';
 import AudiobookPlayer from '@/components/audiobook/AudiobookPlayer';
 import { isAudioFormat } from '@/libs/audiobook/formats';
 import { useLibraryStore } from '@/store/libraryStore';
@@ -56,6 +56,11 @@ Z-Index Layering Guide:
  0 – Base Content
      • Main reading area or background content.
 */
+
+// The page of a book is a very large piece of code. An audiobook never needs it, so it is only
+// fetched once we know the book is not one (and early, so a normal book does not wait longer).
+const loadReaderContent = () => import('./ReaderContent');
+const ReaderContent = dynamic(loadReaderContent, { ssr: false });
 
 const Reader: React.FC<{ ids?: string }> = ({ ids }) => {
   const router = useRouter();
@@ -165,7 +170,12 @@ const Reader: React.FC<{ ids?: string }> = ({ ids }) => {
     firstBookId ? state.getBookByHash(firstBookId) : undefined,
   );
 
-  if (libraryLoaded && audiobook && isAudioFormat(audiobook.format)) {
+  const isAudiobook = !!audiobook && isAudioFormat(audiobook.format);
+  useEffect(() => {
+    if (!isAudiobook) void loadReaderContent();
+  }, [isAudiobook]);
+
+  if (libraryLoaded && isAudiobook && audiobook) {
     return (
       <div className='reader-page bg-base-100 text-base-content full-height select-none overflow-hidden'>
         <AudiobookPlayer book={audiobook} onBack={() => router.back()} />

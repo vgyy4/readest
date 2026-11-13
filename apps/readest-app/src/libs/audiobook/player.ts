@@ -38,6 +38,16 @@ export const normalizeChapters = (
   }));
 };
 
+/**
+ * The chapters with the last one ending at the real duration. The length read from the tags is
+ * an estimate for some MP3s; the audio element knows the true one once it has loaded.
+ */
+export const fitChapters = (chapters: AudioChapter[], duration: number): AudioChapter[] => {
+  const last = chapters[chapters.length - 1];
+  if (!last || !(duration > 0) || last.end === duration) return chapters;
+  return [...chapters.slice(0, -1), { ...last, end: duration }];
+};
+
 export const chapterIndexAt = (chapters: AudioChapter[], position: number) => {
   for (let i = chapters.length - 1; i >= 0; i--) {
     if (position >= chapters[i]!.start) return i;
