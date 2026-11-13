@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import React from 'react';
 
-import { MdCheck } from 'react-icons/md';
+import { MdCheck, MdSwitchAccount } from 'react-icons/md';
 import { useEnv } from '@/context/EnvContext';
 import { useBookDataStore } from '@/store/bookDataStore';
 import { useReaderStore } from '@/store/readerStore';
@@ -12,6 +12,8 @@ import { useSettingsStore } from '@/store/settingsStore';
 import { useParallelViewStore } from '@/store/parallelViewStore';
 import { isWebAppPlatform } from '@/services/environment';
 import { eventDispatcher } from '@/utils/event';
+import { getCachedProfiles } from '@/libs/profiles/cache';
+import { hasProfiles, isInsideProfile, leaveProfile } from '@/libs/profiles/launch';
 import { FIXED_LAYOUT_FORMATS } from '@/types/book';
 import { DOWNLOAD_READEST_URL } from '@/services/constants';
 import { saveViewSettings } from '@/helpers/settings';
@@ -194,6 +196,12 @@ const BookMenu: React.FC<BookMenuProps> = ({ menuClassName, setIsDropdownOpen })
             <MenuItem label={_('Push Notes')} noIcon onClick={handlePushHardcoverNotes} />
           </ul>
         </MenuItem>
+      )}
+      {(hasProfiles(getCachedProfiles()) || isInsideProfile()) && (
+        <>
+          <hr aria-hidden='true' className='border-base-200 my-1' />
+          <MenuItem label={_('Switch profile')} Icon={MdSwitchAccount} onClick={leaveProfile} />
+        </>
       )}
       <hr aria-hidden='true' className='border-base-200 my-1' />
       <MenuItem label={_('Proofread')} onClick={showProofreadRulesWindow} />

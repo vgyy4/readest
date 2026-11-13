@@ -7,6 +7,7 @@ import { getActiveProfileId } from '@/libs/profiles/active';
 import { getAdminModeSetting, setAdminModeSetting } from '@/libs/profiles/admin';
 import { getSessionPin, setSessionPin } from '@/libs/profiles/session';
 import {
+  chooseAvatar,
   clearPin,
   createProfile,
   deleteProfile,
@@ -21,19 +22,22 @@ import {
   verifyProfilePin,
 } from '@/libs/profiles/client';
 import { isValidPin } from '@/libs/profiles/shared';
+import AvatarPicker from '@/components/profiles/AvatarPicker';
+import ProfileAvatar from '@/components/profiles/ProfileAvatar';
 
 interface ProfilesDialogProps {
   books: Book[];
   onClose: () => void;
 }
 
-type View = 'loading' | 'unlock' | 'list' | 'books' | 'enter' | 'profilePin';
+type View = 'loading' | 'unlock' | 'list' | 'books' | 'enter' | 'profilePin' | 'avatar';
 
 interface Target {
   /** null is the main profile. */
   id: string | null;
   name: string;
   hasPin?: boolean;
+  avatar?: string | null;
 }
 
 /**
@@ -147,6 +151,12 @@ const ProfilesDialog: React.FC<ProfilesDialogProps> = ({ books, onClose }) => {
       await setProfileBooks(target!.id!, [...granted], masterPin);
       backToList();
     });
+
+  const openAvatar = (to: Target) => {
+    setTarget(to);
+    setError('');
+    setView('avatar');
+  };
 
   const openProfilePin = (to: Target) => {
     setTarget(to);
@@ -267,9 +277,27 @@ const ProfilesDialog: React.FC<ProfilesDialogProps> = ({ books, onClose }) => {
 
             <ul className='flex flex-col gap-1'>
               <li className='flex items-center justify-between gap-2'>
-                <span className={clsx('text-sm', !activeId && 'font-semibold')}>
-                  {_('Main profile')}
+                <span className='flex items-center gap-3'>
+                  <ProfileAvatar
+                    avatar={state.mainAvatar}
+                    name={_('Main profile')}
+                    className='h-9 w-9'
+                  />
+                  <span className={clsx('text-sm', !activeId && 'font-semibold')}>
+                    {_('Main profile')}
+                  </span>
                 </span>
+                {!activeId && (
+                  <button
+                    type='button'
+                    className={rowButton}
+                    onClick={() =>
+                      openAvatar({ id: null, name: _('Main profile'), avatar: state.mainAvatar })
+                    }
+                  >
+                    {_('Picture')}
+                  </button>
+                )}
                 {activeId && (
                   <button
                     type='button'
@@ -284,11 +312,18 @@ const ProfilesDialog: React.FC<ProfilesDialogProps> = ({ books, onClose }) => {
               </li>
               {state.profiles.map((profile) => (
                 <li key={profile.id} className='flex flex-wrap items-center justify-between gap-2'>
-                  <span className={clsx('text-sm', profile.id === activeId && 'font-semibold')}>
-                    {profile.name}
-                    {profile.hasPin && (
-                      <span className='text-base-content/50 ms-2 text-xs'>{_('PIN')}</span>
-                    )}
+                  <span className='flex items-center gap-3'>
+                    <ProfileAvatar
+                      avatar={profile.avatar}
+                      name={profile.name}
+                      className='h-9 w-9'
+                    />
+                    <span className={clsx('text-sm', profile.id === activeId && 'font-semibold')}>
+                      {profile.name}
+                      {profile.hasPin && (
+                        <span className='text-base-content/50 ms-2 text-xs'>{_('PIN')}</span>
+                      )}
+                    </span>
                   </span>
                   <span className='flex flex-wrap gap-1'>
                     {profile.id !== activeId && (
@@ -316,6 +351,13 @@ const ProfilesDialog: React.FC<ProfilesDialogProps> = ({ books, onClose }) => {
                           onClick={() => openProfilePin(profile)}
                         >
                           {profile.hasPin ? _('Change PIN') : _('Set PIN')}
+                        </button>
+                        <button
+                          type='button'
+                          className={rowButton}
+                          onClick={() => openAvatar(profile)}
+                        >
+                          {_('Picture')}
                         </button>
                         <button
                           type='button'
@@ -452,6 +494,21 @@ const ProfilesDialog: React.FC<ProfilesDialogProps> = ({ books, onClose }) => {
               </button>
             </div>
           </form>
+        )}
+
+        {view === 'avatar' && target && (
+          <div className='-mx-4 -my-4 h-[34rem] max-h-[75vh] sm:-mx-6'>
+            <AvatarPicker
+              name={target.name}
+              current={target.avatar}
+              onPick={async (avatar) => {
+                await chooseAvatar(avatar, target.id);
+                await refresh();
+                backToList();
+              }}
+              onSkip={backToList}
+            />
+          </div>
         )}
 
         {view === 'books' && target?.id && (

@@ -168,6 +168,20 @@ A book shared with several profiles is stored once, under the main profile: each
 profile only gets its own small catalog entry and its own progress and notes,
 and the shared file is never copied.
 
+### Choosing a profile (this fork)
+
+In an account that has profiles, every app launch starts on a **Who is reading?** screen:
+the main profile and each profile are tiles with their picture, and a profile with a PIN
+asks for it first. The first time a profile is opened (and the first time the main profile
+is, once profiles exist) it picks its picture from about 50 stock characters; the choice is
+saved on the server, so it shows on every device. The main profile can change anyone's
+picture from Profiles… → Picture. **Switch profile** (the ☰ menu in the library, and the
+menu in the reader's sidebar) leaves the current profile and returns to that screen. Closing
+the app and opening it again shows the screen again; a page reload does not.
+
+The picture needs `volumes/db/migrations/021_profile_avatars.sql` (applied by the same
+migration step as the others).
+
 Server requirements:
 
 - Apply `volumes/db/migrations/019_profiles.sql` and `020_profile_pins.sql` (the

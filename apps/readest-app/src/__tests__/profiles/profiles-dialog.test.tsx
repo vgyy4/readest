@@ -35,6 +35,7 @@ const client = vi.hoisted(() => ({
   clearPin: vi.fn(),
   verifyProfilePin: vi.fn(),
   switchProfile: vi.fn(),
+  chooseAvatar: vi.fn(),
 }));
 vi.mock('@/libs/profiles/client', () => client);
 

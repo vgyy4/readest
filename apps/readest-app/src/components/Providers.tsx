@@ -34,6 +34,7 @@ import { DropdownProvider } from '@/context/DropdownContext';
 import { CommandPaletteProvider, CommandPalette } from '@/components/command-palette';
 import AtmosphereOverlay from '@/components/AtmosphereOverlay';
 import AppLockScreen from '@/components/AppLockScreen';
+import ProfileGate from '@/components/profiles/ProfileGate';
 import AppLockDialog from '@/components/settings/AppLockDialog';
 import PassphrasePrompt from '@/components/PassphrasePrompt';
 import TelemetryConsentDialog from '@/components/TelemetryConsentDialog';
@@ -238,7 +239,7 @@ const Providers = ({ children }: { children: React.ReactNode }) => {
                   aria-hidden={appShellHidden}
                   style={appShellHidden ? { display: 'none' } : undefined}
                 >
-                  {children}
+                  <ProfileGate>{children}</ProfileGate>
                   <CommandPalette />
                   <AtmosphereOverlay />
                   <PassphrasePrompt />

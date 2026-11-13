@@ -105,6 +105,7 @@ import Spinner from '@/components/Spinner';
 import LibraryHeader from './components/LibraryHeader';
 import Bookshelf from './components/Bookshelf';
 import LibraryEmptyState from './components/LibraryEmptyState';
+import ProfileDialogsHost from './components/ProfileDialogsHost';
 import ImportMenuPopup from './components/ImportMenuPopup';
 import GroupHeader from './components/GroupHeader';
 import FailedImportsDialog, { FailedImport } from './components/FailedImportsDialog';
@@ -1969,6 +1970,7 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
             <LibraryEmptyState onImport={setImportMenuAnchor} />
           </div>
         ))}
+      <ProfileDialogsHost books={libraryBooks} />
       {importMenuAnchor && (
         <ImportMenuPopup
           anchor={importMenuAnchor}

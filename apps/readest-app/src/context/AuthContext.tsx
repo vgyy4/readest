@@ -12,6 +12,7 @@ import {
 import { User } from '@supabase/supabase-js';
 import { supabase } from '@/utils/supabase';
 import posthog from 'posthog-js';
+import { clearProfileSession } from '@/libs/profiles/launch';
 
 interface AuthContextType {
   token: string | null;
@@ -99,6 +100,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       await supabase.auth.signOut();
       localStorage.removeItem('token');
       localStorage.removeItem('user');
+      clearProfileSession();
       setToken(null);
       setUser(null);
     }

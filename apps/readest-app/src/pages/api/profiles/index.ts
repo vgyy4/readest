@@ -20,13 +20,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const { ownerId, admin } = master;
 
     if (req.method === 'GET') {
-      const [{ data: profiles, error }, { data: pin }] = await Promise.all([
+      const [{ data: profiles, error }, { data: pin }, { data: mainMeta }] = await Promise.all([
         admin
           .from('profiles')
-          .select('profile_user_id, name, created_at')
+          .select('profile_user_id, name, avatar, created_at')
           .eq('owner_id', ownerId)
           .order('created_at'),
         admin.from('profile_pins').select('owner_id').eq('owner_id', ownerId).maybeSingle(),
+        admin.from('profile_main_meta').select('avatar').eq('owner_id', ownerId).maybeSingle(),
       ]);
       if (error) throw error;
       const ids = (profiles ?? []).map((p) => p.profile_user_id as string);
@@ -36,9 +37,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const withPin = new Set((pins ?? []).map((p) => p.profile_user_id as string));
       return res.status(200).json({
         hasPin: !!pin,
+        mainAvatar: mainMeta?.avatar ?? null,
         profiles: (profiles ?? []).map((p) => ({
           id: p.profile_user_id,
           name: p.name,
+          avatar: p.avatar ?? null,
           createdAt: p.created_at,
           hasPin: withPin.has(p.profile_user_id as string),
         })),

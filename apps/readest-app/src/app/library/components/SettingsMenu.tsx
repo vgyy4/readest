@@ -10,6 +10,7 @@ import {
   MdSyncProblem,
   MdOutlineSensors,
   MdOutlineColorLens,
+  MdSwitchAccount,
 } from 'react-icons/md';
 
 import { isTauriAppPlatform, isWebAppPlatform } from '@/services/environment';
@@ -18,6 +19,8 @@ import { setBackupDialogVisible } from '@/app/library/components/BackupWindow';
 import { setCacheManagerDialogVisible } from '@/app/library/components/CacheManagerWindow';
 import { useAuth } from '@/context/AuthContext';
 import { eventDispatcher } from '@/utils/event';
+import { getCachedProfiles } from '@/libs/profiles/cache';
+import { hasProfiles, isInsideProfile, leaveProfile } from '@/libs/profiles/launch';
 import { useEnv } from '@/context/EnvContext';
 import { useThemeStore } from '@/store/themeStore';
 import { nextUiStyle, uiStyleLabel } from '@/libs/uiStyle';
@@ -446,6 +449,9 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
         }
         onClick={cycleThemeMode}
       />
+      {user && (hasProfiles(getCachedProfiles()) || isInsideProfile()) && (
+        <MenuItem label={_('Switch profile')} Icon={MdSwitchAccount} onClick={leaveProfile} />
+      )}
       <MenuItem
         label={`${_('Style')}: ${uiStyleLabel(_, uiStyle)}`}
         Icon={MdOutlineColorLens}

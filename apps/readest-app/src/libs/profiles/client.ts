@@ -1,7 +1,7 @@
 import { getAPIBaseUrl } from '@/services/environment';
 import { fetchWithAuth } from '@/utils/fetch';
 import { getActiveProfileId, setActiveProfileId } from './active';
-import { setCachedProfiles, type ProfileInfo, type ProfilesState } from './cache';
+import { setCachedAvatar, setCachedProfiles, type ProfileInfo, type ProfilesState } from './cache';
 import { PIN_HEADER } from './shared';
 
 export type { ProfileInfo, ProfilesState };
@@ -97,4 +97,17 @@ export const verifyProfilePin = async (profileId: string | null, pin?: string) =
 export const switchProfile = (profileId: string | null) => {
   setActiveProfileId(profileId);
   window.location.reload();
+};
+
+/**
+ * Pick a stock picture. Inside a profile this sets that profile's own; as the main
+ * profile, `profileId` chooses another profile's (omit it for the main profile's).
+ * No PIN is needed.
+ */
+export const chooseAvatar = async (avatar: string, profileId?: string | null) => {
+  await fetchWithAuth(
+    endpoint('/avatar'),
+    json('POST', { avatar, profileId: profileId ?? undefined }),
+  );
+  setCachedAvatar(profileId ?? getActiveProfileId(), avatar);
 };
