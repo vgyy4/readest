@@ -68,9 +68,8 @@ jobs:
 
       - name: Generate the Android project
         working-directory: apps/readest-app
-        env:
-          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
         run: |
+          export NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
           rm -rf src-tauri/gen/android
           pnpm tauri android init --ci
           pnpm tauri icon ../../data/icons/readest-book.png
@@ -103,9 +102,9 @@ jobs:
       - name: Build the APKs
         working-directory: apps/readest-app
         env:
-          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
           NODE_OPTIONS: --max-old-space-size=6144
         run: |
+          export NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
           apk_path=src-tauri/gen/android/app/build/outputs/apk/universal/release
           pnpm tauri android build
           cp "$apk_path/app-universal-release.apk" Readest_universal.apk
