@@ -51,3 +51,17 @@ export const buildGrantRows = <T extends Record<string, unknown>>(
   masterRows: T[],
   profileUserId: string,
 ) => masterRows.map((row) => ({ ...row, ...PROFILE_OWN_FIELDS, user_id: profileUserId }));
+
+/**
+ * Which profiles gain and lose one book when the admin sets who can see it.
+ * `owned` are the account's profile ids; anything else in `desired` is ignored.
+ */
+export const planBookGrants = (owned: string[], current: string[], desired: string[]) => {
+  const own = new Set(owned);
+  const have = new Set(current);
+  const want = new Set(desired.filter((id) => own.has(id)));
+  return {
+    add: [...want].filter((id) => !have.has(id)),
+    remove: [...have].filter((id) => !want.has(id)),
+  };
+};

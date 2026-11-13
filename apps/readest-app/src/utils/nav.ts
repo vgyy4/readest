@@ -4,6 +4,15 @@ import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { isPWA, isTauriAppPlatform, isWebAppPlatform } from '@/services/environment';
 import { BOOK_IDS_SEPARATOR } from '@/services/constants';
 import { AppService } from '@/types/system';
+import { isAdminMode } from '@/libs/profiles/admin';
+import { eventDispatcher } from '@/utils/event';
+
+// The admin profile does not read: opening a book shows who can see it instead.
+const denyReadingToAdmin = (bookIds: string[]) => {
+  if (!isAdminMode()) return false;
+  void eventDispatcher.dispatch('open-book-access', { bookHashes: bookIds });
+  return true;
+};
 
 let readerWindowsCount = 0;
 const createReaderWindow = (appService: AppService, url: string) => {
@@ -45,6 +54,7 @@ export const showReaderWindow = (
   bookIds: string[],
   queryParams?: string,
 ) => {
+  if (denyReadingToAdmin(bookIds)) return;
   const ids = bookIds.join(BOOK_IDS_SEPARATOR);
   const params = new URLSearchParams(queryParams || '');
   params.set('ids', ids);
@@ -100,6 +110,7 @@ export const navigateToReader = (
   queryParams?: string,
   navOptions?: { scroll?: boolean },
 ) => {
+  if (denyReadingToAdmin(bookIds)) return;
   const ids = bookIds.join(BOOK_IDS_SEPARATOR);
   if (isWebAppPlatform() && !isPWA()) {
     router.push(`/reader/${ids}${queryParams ? `?${queryParams}` : ''}`, navOptions);

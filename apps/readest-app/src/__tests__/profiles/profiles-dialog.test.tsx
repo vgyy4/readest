@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Book } from '@/types/book';
 import ProfilesDialog from '@/app/library/components/ProfilesDialog';
 import { setActiveProfileId } from '@/libs/profiles/active';
+import { setSessionPin } from '@/libs/profiles/session';
 
 vi.mock('@/hooks/useTranslation', () => ({
   useTranslation: () => (key: string, options?: Record<string, string | number>) => {
@@ -21,6 +22,8 @@ vi.mock('@/components/Dialog', () => ({
 }));
 
 const client = vi.hoisted(() => ({
+  fetchBookAccess: vi.fn(),
+  setBookAccess: vi.fn(),
   fetchProfiles: vi.fn(),
   getCachedProfiles: vi.fn(),
   createProfile: vi.fn(),
@@ -49,6 +52,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   setActiveProfileId(null);
+  setSessionPin('');
+  localStorage.clear();
 });
 
 describe('ProfilesDialog (master)', () => {

@@ -164,6 +164,13 @@ Server requirements:
   app, and they use `SUPABASE_ADMIN_KEY` (the service role key, already passed
   by `compose.yaml`) to create and read the profiles' users.
 
+The main profile is the **admin**: once the account has a profile it does not read
+(opening a book shows which profiles can see it, and lets you change that), but
+it still adds books, creates and deletes profiles, sets every PIN, and chooses
+each profile's books, either per profile (Profiles… → Books) or per book. The
+switch under Settings → Profiles → "Main profile is for administration only"
+turns this off for an account that wants to read on the main profile too.
+
 Limits worth knowing: a profile shares the main account's sign-in on the device,
 so profiles separate data and gate management behind the PIN, but are not a
 security boundary against someone who deliberately crafts API requests as the

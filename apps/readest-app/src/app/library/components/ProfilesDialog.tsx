@@ -4,6 +4,8 @@ import { Book } from '@/types/book';
 import { useTranslation } from '@/hooks/useTranslation';
 import Dialog from '@/components/Dialog';
 import { getActiveProfileId } from '@/libs/profiles/active';
+import { getAdminModeSetting, setAdminModeSetting } from '@/libs/profiles/admin';
+import { getSessionPin, setSessionPin } from '@/libs/profiles/session';
 import {
   clearPin,
   createProfile,
@@ -47,7 +49,12 @@ const ProfilesDialog: React.FC<ProfilesDialogProps> = ({ books, onClose }) => {
   const [view, setView] = useState<View>('loading');
   const [state, setState] = useState<ProfilesState>({ hasPin: false, profiles: [] });
   // The master PIN once entered, sent with each management request.
-  const [masterPin, setMasterPin] = useState('');
+  const [masterPin, setMasterPinState] = useState(getSessionPin());
+  const setMasterPin = (pin: string) => {
+    setSessionPin(pin);
+    setMasterPinState(pin);
+  };
+  const [adminSetting, setAdminSetting] = useState(getAdminModeSetting());
   const [pinInput, setPinInput] = useState('');
   const [newName, setNewName] = useState('');
   const [error, setError] = useState('');
@@ -66,7 +73,7 @@ const ProfilesDialog: React.FC<ProfilesDialogProps> = ({ books, onClose }) => {
         }
         const next = await fetchProfiles();
         setState(next);
-        setView(next.hasPin ? 'unlock' : 'list');
+        setView(next.hasPin && !getSessionPin() ? 'unlock' : 'list');
       } catch {
         setError(_('Could not reach the server.'));
         setView('list');
@@ -333,6 +340,27 @@ const ProfilesDialog: React.FC<ProfilesDialogProps> = ({ books, onClose }) => {
 
             {!activeId && (
               <>
+                <label className='flex cursor-pointer items-start justify-between gap-4 py-1'>
+                  <span className='flex flex-col'>
+                    <span className='text-sm'>{_('Main profile is for administration only')}</span>
+                    <span className='text-base-content/60 text-xs'>
+                      {_(
+                        'It adds books and decides who can see what, but does not read: opening a book shows which profiles have it.',
+                      )}
+                    </span>
+                  </span>
+                  <input
+                    type='checkbox'
+                    className='toggle toggle-sm mt-1'
+                    aria-label={_('Main profile is for administration only')}
+                    checked={adminSetting ?? state.profiles.length > 0}
+                    onChange={(e) => {
+                      setAdminModeSetting(e.target.checked);
+                      setAdminSetting(e.target.checked);
+                    }}
+                  />
+                </label>
+
                 <form
                   className='flex flex-wrap items-center gap-2'
                   onSubmit={(e) => {

@@ -1,21 +1,11 @@
 import { getAPIBaseUrl } from '@/services/environment';
 import { fetchWithAuth } from '@/utils/fetch';
 import { getActiveProfileId, setActiveProfileId } from './active';
+import { setCachedProfiles, type ProfileInfo, type ProfilesState } from './cache';
 import { PIN_HEADER } from './shared';
 
-export interface ProfileInfo {
-  id: string;
-  name: string;
-  /** The profile has a PIN of its own. */
-  hasPin?: boolean;
-}
-
-export interface ProfilesState {
-  hasPin: boolean;
-  profiles: ProfileInfo[];
-}
-
-const CACHE_KEY = 'readest-profiles-cache';
+export type { ProfileInfo, ProfilesState };
+export { getCachedProfiles } from './cache';
 
 const endpoint = (path: string) => `${getAPIBaseUrl()}/profiles${path}`;
 
@@ -27,19 +17,10 @@ const json = (method: string, body: unknown, pin?: string): RequestInit => ({
   body: JSON.stringify(body),
 });
 
-/** The last list seen by the master, so a profile can show who to switch to offline. */
-export const getCachedProfiles = (): ProfilesState | null => {
-  try {
-    return JSON.parse(localStorage.getItem(CACHE_KEY) ?? 'null') as ProfilesState | null;
-  } catch {
-    return null;
-  }
-};
-
 export const fetchProfiles = async (): Promise<ProfilesState> => {
   const response = await fetchWithAuth(endpoint(''), { method: 'GET' });
   const state = (await response.json()) as ProfilesState;
-  localStorage.setItem(CACHE_KEY, JSON.stringify(state));
+  setCachedProfiles(state);
   return state;
 };
 
@@ -67,6 +48,19 @@ export const fetchProfileBooks = async (profileId: string, pin?: string): Promis
 
 export const setProfileBooks = async (profileId: string, bookHashes: string[], pin?: string) => {
   await fetchWithAuth(endpoint('/books'), json('PUT', { profileId, bookHashes }, pin));
+};
+
+/** The admin's per-book view: which profiles can see `bookHash`. */
+export const fetchBookAccess = async (bookHash: string, pin?: string): Promise<string[]> => {
+  const response = await fetchWithAuth(
+    `${endpoint('/book-access')}?bookHash=${encodeURIComponent(bookHash)}`,
+    { method: 'GET', headers: pinHeaders(pin) },
+  );
+  return ((await response.json()) as { profileIds: string[] }).profileIds;
+};
+
+export const setBookAccess = async (bookHash: string, profileIds: string[], pin?: string) => {
+  await fetchWithAuth(endpoint('/book-access'), json('PUT', { bookHash, profileIds }, pin));
 };
 
 /** 4-digit PINs. No `profileId` is the master PIN of the main profile. */

@@ -67,6 +67,7 @@ import SetStatusAlert from './SetStatusAlert';
 import RecentShelf from './RecentShelf';
 import BookshelvesDialog from './BookshelvesDialog';
 import ProfilesDialog from './ProfilesDialog';
+import BookAccessDialog from './BookAccessDialog';
 import { resolveBookshelves, RECENT_SHELF_ID } from '@/services/bookshelves/definitions';
 import { selectShelfBooks } from '@/services/bookshelves/evaluate';
 import { useOpenBook } from '../hooks/useOpenBook';
@@ -238,6 +239,17 @@ const Bookshelf: React.FC<BookshelfProps> = ({
   const [showGroupingModal, setShowGroupingModal] = useState(false);
   const [showBookshelvesDialog, setShowBookshelvesDialog] = useState(false);
   const [showProfilesDialog, setShowProfilesDialog] = useState(false);
+  const [accessBookHash, setAccessBookHash] = useState<string | null>(null);
+
+  // The admin does not read: opening a book asks who can see it instead.
+  useEffect(() => {
+    const open = (event: CustomEvent) => {
+      const [hash] = (event.detail as { bookHashes: string[] }).bookHashes;
+      if (hash) setAccessBookHash(hash);
+    };
+    eventDispatcher.on('open-book-access', open);
+    return () => eventDispatcher.off('open-book-access', open);
+  }, []);
 
   useEffect(() => {
     const open = () => setShowProfilesDialog(true);
@@ -1119,6 +1131,19 @@ const Bookshelf: React.FC<BookshelfProps> = ({
               setShowGroupingModal(false);
               handleSetSelectMode(false);
             }}
+          />
+        </ModalPortal>
+      )}
+      {accessBookHash && (
+        <ModalPortal>
+          <BookAccessDialog
+            book={
+              libraryBooks.find((book) => book.hash === accessBookHash) ?? {
+                hash: accessBookHash,
+                title: '',
+              }
+            }
+            onClose={() => setAccessBookHash(null)}
           />
         </ModalPortal>
       )}

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildGrantRows,
   pinAllowsEntry,
+  planBookGrants,
   diffGrants,
   hashPin,
   isValidPin,
@@ -154,5 +155,24 @@ describe('pinAllowsEntry', () => {
     expect(await pinAllowsEntry({ ...entry, pin: '2222' })).toBe(false);
     expect(await pinAllowsEntry({ ...entry, pin: '1111' })).toBe(true);
     expect(kid).toBeTruthy();
+  });
+});
+
+describe('planBookGrants', () => {
+  const owned = ['kid1', 'kid2', 'teen'];
+
+  it('adds the profiles newly given the book and removes the ones that lost it', () => {
+    expect(planBookGrants(owned, ['kid1', 'kid2'], ['kid2', 'teen'])).toEqual({
+      add: ['teen'],
+      remove: ['kid1'],
+    });
+  });
+
+  it("ignores ids that are not the account's profiles", () => {
+    expect(planBookGrants(owned, [], ['kid1', 'stranger'])).toEqual({ add: ['kid1'], remove: [] });
+  });
+
+  it('does nothing when nothing changed', () => {
+    expect(planBookGrants(owned, ['kid1'], ['kid1', 'kid1'])).toEqual({ add: [], remove: [] });
   });
 });

@@ -2,7 +2,7 @@ import type { Book } from '@/types/book';
 import type { FileSystem } from '@/types/system';
 import { safeLoadJSON } from '@/services/persistence';
 import { getActiveProfileId } from './active';
-import { getCachedProfiles } from './client';
+import { getCachedProfiles } from './cache';
 import { libraryFilenameFor } from './files';
 
 /**
