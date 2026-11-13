@@ -4,7 +4,7 @@ import { MdLock } from 'react-icons/md';
 import PinInput from '@/components/PinInput';
 import { useTranslation } from '@/hooks/useTranslation';
 import { setSessionPin } from '@/libs/profiles/session';
-import { verifyProfilePin, type ProfilesState } from '@/libs/profiles/client';
+import { checkProfilePin, type ProfilesState } from '@/libs/profiles/client';
 import BuildBadge from '@/components/BuildBadge';
 import ProfileAvatar from './ProfileAvatar';
 
@@ -53,15 +53,19 @@ const ProfilePicker: React.FC<ProfilePickerProps> = ({ state, onEnter }) => {
   const submit = async (value: string) => {
     if (!target || busy) return;
     setBusy(true);
-    const ok = await verifyProfilePin(target.id, value);
+    const result = await checkProfilePin(target.id, value);
     setBusy(false);
-    if (ok) {
+    if (result === 'ok') {
       // The main profile's PIN is the master PIN: keep it so the admin is not asked again.
       if (target.id === null) setSessionPin(value);
       onEnter(target.id);
       return;
     }
-    setError(_('Wrong PIN.'));
+    setError(
+      result === 'offline-unknown'
+        ? _('No connection. Open this profile once online to unlock it without a connection.')
+        : _('Wrong PIN.'),
+    );
     setShake(true);
     setPin('');
     window.setTimeout(() => setShake(false), 500);

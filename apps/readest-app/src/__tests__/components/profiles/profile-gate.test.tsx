@@ -25,6 +25,10 @@ vi.mock('@/libs/profiles/client', async (importOriginal) => ({
   fetchProfiles: mocks.fetchProfiles,
   chooseAvatar: mocks.chooseAvatar,
   verifyProfilePin: mocks.verifyProfilePin,
+  checkProfilePin: async (...args: unknown[]) => {
+    const result = await mocks.verifyProfilePin(...args);
+    return result === 'offline-unknown' ? 'offline-unknown' : result ? 'ok' : 'wrong';
+  },
 }));
 
 const withPictures = {

@@ -2,6 +2,8 @@ import { getAPIBaseUrl } from '@/services/environment';
 import { fetchWithAuth } from '@/utils/fetch';
 import { getActiveProfileId, setActiveProfileId } from './active';
 import { setCachedAvatar, setCachedProfiles, type ProfileInfo, type ProfilesState } from './cache';
+import { forgetPinsOfProfilesWithoutPin, matchesRememberedPin, rememberPin } from './pinCache';
+import { isOfflineError } from './offline';
 import { PIN_HEADER } from './shared';
 
 export type { ProfileInfo, ProfilesState };
@@ -21,6 +23,7 @@ export const fetchProfiles = async (): Promise<ProfilesState> => {
   const response = await fetchWithAuth(endpoint(''), { method: 'GET' });
   const state = (await response.json()) as ProfilesState;
   setCachedProfiles(state);
+  forgetPinsOfProfilesWithoutPin(state);
   return state;
 };
 
@@ -93,23 +96,38 @@ export const clearPin = async (masterPin?: string, profileId?: string) => {
   await fetchWithAuth(endpoint('/pin'), json('POST', { action: 'clear', profileId }, masterPin));
 };
 
+/** What checking a PIN came to: `offline-unknown` is "no connection and never checked here". */
+export type PinCheck = 'ok' | 'wrong' | 'offline-unknown';
+
 /**
- * May `pin` open this profile (null = the main profile)? A profile takes its own
- * PIN or the master PIN. Sent as the main account (no profile header) even while
- * a profile is active, which is how a profile unlocks switching.
+ * May `pin` open this profile (null = the main profile)? A profile takes its own PIN or the
+ * master PIN. Sent as the main account (no profile header) even while a profile is active, which
+ * is how a profile unlocks switching. Without a connection, a PIN that was accepted before on this
+ * device is accepted again (see pinCache); one never checked here cannot be told.
  */
-export const verifyProfilePin = async (profileId: string | null, pin?: string) => {
+export const checkProfilePin = async (
+  profileId: string | null,
+  pin?: string,
+): Promise<PinCheck> => {
   const active = getActiveProfileId();
   setActiveProfileId(null);
   try {
     await fetchWithAuth(endpoint('/pin'), json('POST', { action: 'verify', profileId, pin }));
-    return true;
-  } catch {
-    return false;
+    if (pin) await rememberPin(profileId, pin);
+    return 'ok';
+  } catch (error) {
+    // The server answered: it said no (wrong PIN, too many tries). Believe it.
+    if (!isOfflineError(error)) return 'wrong';
+    const remembered = pin ? await matchesRememberedPin(profileId, pin) : null;
+    if (remembered === null) return 'offline-unknown';
+    return remembered ? 'ok' : 'wrong';
   } finally {
     setActiveProfileId(active);
   }
 };
+
+export const verifyProfilePin = async (profileId: string | null, pin?: string) =>
+  (await checkProfilePin(profileId, pin)) === 'ok';
 
 /** Use `profileId` (null = the master) and reload, as library and progress change with it. */
 export const switchProfile = (profileId: string | null) => {

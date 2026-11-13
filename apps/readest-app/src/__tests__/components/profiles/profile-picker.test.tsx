@@ -10,7 +10,7 @@ vi.mock('@/hooks/useTranslation', () => ({
   },
 }));
 const verify = vi.hoisted(() => vi.fn());
-vi.mock('@/libs/profiles/client', () => ({ verifyProfilePin: verify }));
+vi.mock('@/libs/profiles/client', () => ({ checkProfilePin: verify }));
 
 const state = {
   hasPin: true,
@@ -51,7 +51,7 @@ describe('ProfilePicker', () => {
   });
 
   it('asks a profile with a PIN for it, and opens on the right one', async () => {
-    verify.mockResolvedValue(true);
+    verify.mockResolvedValue('ok');
     const onEnter = vi.fn();
     render(<ProfilePicker state={state} onEnter={onEnter} />);
     fireEvent.click(screen.getByRole('button', { name: /Eli/ }));
@@ -62,7 +62,7 @@ describe('ProfilePicker', () => {
   });
 
   it('stays put on a wrong PIN and says so', async () => {
-    verify.mockResolvedValue(false);
+    verify.mockResolvedValue('wrong');
     const onEnter = vi.fn();
     render(<ProfilePicker state={state} onEnter={onEnter} />);
     fireEvent.click(screen.getByRole('button', { name: /Eli/ }));
@@ -71,8 +71,20 @@ describe('ProfilePicker', () => {
     expect(onEnter).not.toHaveBeenCalled();
   });
 
+  it('says to connect once, rather than "Wrong PIN", when it cannot tell without a connection', async () => {
+    verify.mockResolvedValue('offline-unknown');
+    const onEnter = vi.fn();
+    render(<ProfilePicker state={state} onEnter={onEnter} />);
+    fireEvent.click(screen.getByRole('button', { name: /Eli/ }));
+    typePin('1234');
+    const alert = (await screen.findByRole('alert')).textContent ?? '';
+    expect(alert).toMatch(/No connection/);
+    expect(alert).not.toMatch(/Wrong PIN/);
+    expect(onEnter).not.toHaveBeenCalled();
+  });
+
   it('keeps the master PIN for the session when the main profile is opened with it', async () => {
-    verify.mockResolvedValue(true);
+    verify.mockResolvedValue('ok');
     const onEnter = vi.fn();
     render(<ProfilePicker state={state} onEnter={onEnter} />);
     fireEvent.click(screen.getByRole('button', { name: /Main profile/ }));
