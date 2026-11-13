@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { MdAdd, MdBookmarkAdd, MdDeleteOutline, MdGraphicEq, MdRemove } from 'react-icons/md';
 import { BookNote } from '@/types/book';
 import { useTranslation } from '@/hooks/useTranslation';
-import type { PlayerStyle } from '@/libs/audiobook/palette';
+import { type UiStyle, UI_STYLES, uiStyleLabel } from '@/libs/uiStyle';
 import { bookmarkSeconds } from '@/hooks/useAudiobook';
 import {
   AudioChapter,
@@ -311,8 +311,8 @@ export const BookmarksSheet: React.FC<{
 
 export const PlayerSettingsSheet: React.FC<{
   seconds: number;
-  style: PlayerStyle;
-  onStyleChange: (style: PlayerStyle) => void;
+  style: UiStyle;
+  onStyleChange: (style: UiStyle) => void;
   onChange: (seconds: number) => void;
   onClose: () => void;
 }> = ({ seconds, style, onStyleChange, onChange, onClose }) => {
@@ -320,10 +320,10 @@ export const PlayerSettingsSheet: React.FC<{
   return (
     <Sheet title={_('Player settings')} onClose={onClose}>
       <p className='mb-2 px-2 text-sm' style={{ color: 'var(--ab-text-muted)' }}>
-        {_('Style')}
+        {_('Style (the whole app)')}
       </p>
       <div className='mb-6 flex justify-center gap-2'>
-        {(['material', 'glass'] as const).map((option) => (
+        {UI_STYLES.map((option) => (
           <button
             key={option}
             type='button'
@@ -332,7 +332,7 @@ export const PlayerSettingsSheet: React.FC<{
             style={chipStyle(style === option)}
             onClick={() => onStyleChange(option)}
           >
-            {option === 'material' ? _('Material') : _('Liquid glass')}
+            {uiStyleLabel(_, option)}
           </button>
         ))}
       </div>

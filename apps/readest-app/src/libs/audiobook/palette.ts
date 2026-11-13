@@ -105,13 +105,6 @@ export const sampleCoverColor = async (url: string): Promise<CoverColor> => {
   }
 };
 
-export type PlayerStyle = 'material' | 'glass';
-
-export const PLAYER_STYLE_KEY = 'readest-audiobook-style';
-
-export const isPlayerStyle = (value: unknown): value is PlayerStyle =>
-  value === 'material' || value === 'glass';
-
 /**
  * Liquid-glass colors: light text over a blurred, darkened copy of the cover, with
  * translucent white surfaces. Same variable names as the Material palette, so every

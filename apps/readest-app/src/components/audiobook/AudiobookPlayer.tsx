@@ -18,13 +18,8 @@ import { Book } from '@/types/book';
 import { useThemeStore } from '@/store/themeStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAudiobook } from '@/hooks/useAudiobook';
-import {
-  buildGlassPalette,
-  buildPalette,
-  isPlayerStyle,
-  PLAYER_STYLE_KEY,
-  type PlayerStyle,
-} from '@/libs/audiobook/palette';
+import { buildGlassPalette, buildPalette } from '@/libs/audiobook/palette';
+import { useUiStyle } from '@/hooks/useUiStyle';
 import {
   bookPercent,
   chapterSegments,
@@ -89,16 +84,9 @@ const AudiobookPlayer: React.FC<AudiobookPlayerProps> = ({ book, onBack }) => {
 
   const { chapters, position, duration, speed, chapterIndex } = player;
   const chapter = player.chapter;
-  const [style, setStyle] = useState<PlayerStyle>(() => {
-    const stored =
-      typeof localStorage === 'undefined' ? null : localStorage.getItem(PLAYER_STYLE_KEY);
-    return isPlayerStyle(stored) ? stored : 'material';
-  });
-  const glass = style === 'glass';
-  const changeStyle = (next: PlayerStyle) => {
-    setStyle(next);
-    localStorage.setItem(PLAYER_STYLE_KEY, next);
-  };
+  // The player follows the app-wide style; the classic look has no player of its own, so it gets Material.
+  const [uiStyle, setUiStyle] = useUiStyle();
+  const glass = uiStyle === 'glass';
   const palette = useMemo(() => {
     const color = player.color ?? { hue: 215, saturation: 0.7 };
     return glass ? buildGlassPalette(color, isDarkMode) : buildPalette(color, isDarkMode);
@@ -471,8 +459,8 @@ const AudiobookPlayer: React.FC<AudiobookPlayerProps> = ({ book, onBack }) => {
       {sheet === 'skip' && (
         <PlayerSettingsSheet
           seconds={player.skipSeconds}
-          style={style}
-          onStyleChange={changeStyle}
+          style={uiStyle}
+          onStyleChange={setUiStyle}
           onChange={player.setSkipSeconds}
           onClose={() => setSheet(null)}
         />

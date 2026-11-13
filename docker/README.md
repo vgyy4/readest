@@ -201,10 +201,20 @@ jump, rewind/fast forward (20 s by default, 5-60 s in the menu), sleep timer
 (5/15/30/60 min, custom, or end of chapter), speed 0.5-3x and bookmarks (tap the
 bookmark button to open them, hold it to save the current moment).
 
-The ⋮ menu switches between two looks of the same player so they can be compared:
-**Material** (Voice's Material 3 Expressive look) and **Liquid glass** (frosted
-translucent surfaces over a blurred cover; uses `backdrop-filter`, so it needs
-iOS 9+/Android WebView 76+). The choice is remembered.
+## App style (this fork)
+
+The whole app (library, menus, dialogs, settings, reader toolbars and sidebars, and the
+audiobook player) has three looks, chosen per device from the menu (☰ → **Style**, or the
+reader's View menu, or the audiobook player's ⋮ menu):
+
+- **Material** (default): the Voice look, with Material 3 Expressive shapes: big rounded
+  corners, pill buttons, tonal surfaces tinted by the theme's color.
+- **Liquid glass**: the same shapes with frosted, translucent surfaces and a bright rim
+  over a soft colored background. It uses `backdrop-filter` (with the `-webkit-` prefix),
+  which iOS 15 and Android WebView support; where it is missing the surfaces turn solid.
+- **Classic**: the original Readest look.
+
+The book text and the reader's own themes are not restyled, and e-ink mode is never touched.
 
 The same player runs on Android, iOS and desktop, with lock screen and
 notification controls and background playback. Progress is kept per profile and

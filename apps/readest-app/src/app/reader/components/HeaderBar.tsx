@@ -158,7 +158,7 @@ const HeaderBar: React.FC<HeaderBarProps> = ({
         // padding, so on notch devices its box covers the top inset strip and
         // swallowed long presses on text rendered there (#5429) — children
         // that take input restore pointer-events themselves.
-        'pointer-events-none left-0 top-0 w-full',
+        'reader-headerbar pointer-events-none left-0 top-0 w-full',
         isHeaderVisible && 'bg-base-100',
         window.innerWidth < 640 ? 'fixed z-20' : 'absolute',
       )}

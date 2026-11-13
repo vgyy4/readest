@@ -4,8 +4,10 @@ import Script from 'next/script';
 import { ViewTransitions } from 'next-view-transitions';
 import { EnvProvider } from '@/context/EnvContext';
 import Providers from '@/components/Providers';
+import { UI_STYLE_BOOT_SCRIPT } from '@/libs/uiStyle';
 
 import '../styles/globals.css';
+import '../styles/ui-style.css';
 
 const url = 'https://web.readest.com/';
 const title = 'Readest — Where You Read, Digest and Get Insight';
@@ -139,6 +141,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={process.env['NEXT_PUBLIC_APP_PLATFORM'] === 'tauri' ? 'edge-to-edge' : ''}
     >
       <head>
+        <script dangerouslySetInnerHTML={{ __html: UI_STYLE_BOOT_SCRIPT }} />
         {shouldInjectRuntimeConfig ? (
           <Script src='/runtime-config.js' strategy='beforeInteractive' />
         ) : null}

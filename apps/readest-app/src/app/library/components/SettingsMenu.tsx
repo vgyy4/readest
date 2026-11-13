@@ -4,7 +4,13 @@ import { useRouter } from 'next/navigation';
 import { PiUserCircle, PiUserCircleCheck, PiGear } from 'react-icons/pi';
 import { PiSun, PiMoon } from 'react-icons/pi';
 import { TbSunMoon } from 'react-icons/tb';
-import { MdCloudSync, MdSync, MdSyncProblem, MdOutlineSensors } from 'react-icons/md';
+import {
+  MdCloudSync,
+  MdSync,
+  MdSyncProblem,
+  MdOutlineSensors,
+  MdOutlineColorLens,
+} from 'react-icons/md';
 
 import { isTauriAppPlatform, isWebAppPlatform } from '@/services/environment';
 import { DOWNLOAD_READEST_URL } from '@/services/constants';
@@ -14,6 +20,8 @@ import { useAuth } from '@/context/AuthContext';
 import { eventDispatcher } from '@/utils/event';
 import { useEnv } from '@/context/EnvContext';
 import { useThemeStore } from '@/store/themeStore';
+import { nextUiStyle, uiStyleLabel } from '@/libs/uiStyle';
+import { useUiStyle } from '@/hooks/useUiStyle';
 import { useQuotaStats } from '@/hooks/useQuotaStats';
 import { useFileSyncStore } from '@/store/fileSyncStore';
 import {
@@ -60,6 +68,7 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
   const { user } = useAuth();
   const { userProfilePlan, quotas } = useQuotaStats(true);
   const { themeMode, setThemeMode } = useThemeStore();
+  const [uiStyle, setUiStyle] = useUiStyle();
   const { settings, setSettingsDialogOpen } = useSettingsStore();
   const [isAlwaysOnTop, setIsAlwaysOnTop] = useState(settings.alwaysOnTop);
   const [isAlwaysShowStatusBar, setIsAlwaysShowStatusBar] = useState(settings.alwaysShowStatusBar);
@@ -436,6 +445,11 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
                 : TbSunMoon
         }
         onClick={cycleThemeMode}
+      />
+      <MenuItem
+        label={`${_('Style')}: ${uiStyleLabel(_, uiStyle)}`}
+        Icon={MdOutlineColorLens}
+        onClick={() => setUiStyle(nextUiStyle(uiStyle))}
       />
       <MenuItem label={_('Settings')} Icon={PiGear} onClick={openSettingsDialog} />
       <hr aria-hidden='true' className='border-base-200 my-1' />

@@ -4,7 +4,14 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { BiMoon, BiSun } from 'react-icons/bi';
 import { TbSunMoon } from 'react-icons/tb';
-import { MdZoomOut, MdZoomIn, MdCheck, MdInfoOutline, MdOutlineSensors } from 'react-icons/md';
+import {
+  MdZoomOut,
+  MdZoomIn,
+  MdCheck,
+  MdInfoOutline,
+  MdOutlineSensors,
+  MdOutlineColorLens,
+} from 'react-icons/md';
 import { MdRemove, MdAdd, MdContrast } from 'react-icons/md';
 import { MdSync, MdSyncProblem } from 'react-icons/md';
 import { IoMdExpand } from 'react-icons/io';
@@ -24,6 +31,8 @@ import {
 import { useEnv } from '@/context/EnvContext';
 import { useAuth } from '@/context/AuthContext';
 import { useThemeStore } from '@/store/themeStore';
+import { nextUiStyle, uiStyleLabel } from '@/libs/uiStyle';
+import { useUiStyle } from '@/hooks/useUiStyle';
 import { useReaderStore } from '@/store/readerStore';
 import { useBookDataStore } from '@/store/bookDataStore';
 import { useSettingsStore } from '@/store/settingsStore';
@@ -65,6 +74,7 @@ const ViewMenu: React.FC<ViewMenuProps> = ({
   const viewState = getViewState(bookKey);
 
   const { themeMode, isDarkMode, setThemeMode } = useThemeStore();
+  const [uiStyle, setUiStyle] = useUiStyle();
   const [isScrolledMode, setScrolledMode] = useState(viewSettings!.scrolled);
   const [scrolledDirection, setScrolledDirection] = useState(
     viewSettings!.scrolledDirection ?? 'vertical',
@@ -518,6 +528,11 @@ const ViewMenu: React.FC<ViewMenuProps> = ({
                 : TbSunMoon
         }
         onClick={cycleThemeMode}
+      />
+      <MenuItem
+        label={`${_('Style')}: ${uiStyleLabel(_, uiStyle)}`}
+        Icon={MdOutlineColorLens}
+        onClick={() => setUiStyle(nextUiStyle(uiStyle))}
       />
       {bookData.book?.format === 'PDF' && appService?.supportsCanvasContext2DFilter && (
         <MenuItem
