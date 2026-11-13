@@ -7,7 +7,7 @@ import { TranslationFunc } from '@/hooks/useTranslation';
 import { createProgressThrottle, ProgressHandler, ProgressPayload } from '@/utils/transfer';
 import { eventDispatcher } from '@/utils/event';
 import { getNetworkKind, type NetworkKind, shouldHoldUpload } from '@/utils/uploadNetwork';
-import { getTransferMessages } from './transferMessages';
+import { getTransferMessages, withFailureReason } from './transferMessages';
 
 const TRANSFER_QUEUE_KEY = 'readest_transfer_queue';
 const RETRY_DELAY_BASE_MS = 2000;
@@ -597,7 +597,7 @@ class TransferManager {
 
           eventDispatcher.dispatch('toast', {
             type: 'error',
-            message: errorMessages[transfer.type],
+            message: withFailureReason(errorMessages[transfer.type], errorMessage),
           });
         }
 

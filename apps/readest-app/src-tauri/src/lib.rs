@@ -26,6 +26,7 @@ mod clip_url;
 mod dir_scanner;
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 mod discord_rpc;
+mod download_parts;
 mod epub_parser;
 mod folder_watch;
 #[cfg(target_os = "macos")]

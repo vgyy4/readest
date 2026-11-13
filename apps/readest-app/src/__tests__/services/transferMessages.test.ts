@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { getTransferMessages } from '@/services/transferMessages';
+import { getTransferMessages, withFailureReason } from '@/services/transferMessages';
 import type { TransferItem } from '@/store/transferStore';
 import type { TranslationFunc } from '@/hooks/useTranslation';
 
@@ -65,5 +65,26 @@ describe('getTransferMessages', () => {
     expect(m.success.upload).toBe('File uploaded: Roboto');
     expect(m.success.download).toBe('File downloaded: Roboto');
     expect(m.success.delete).toBe('Deleted cloud copy of the file: Roboto');
+  });
+});
+
+describe('withFailureReason', () => {
+  test('puts the reason under the message', () => {
+    expect(
+      withFailureReason('Failed to download book: Dune', 'The server refused the download (403).'),
+    ).toBe('Failed to download book: Dune\nThe server refused the download (403).');
+  });
+
+  test('leaves out a reason that says nothing', () => {
+    expect(withFailureReason('Failed', undefined)).toBe('Failed');
+    expect(withFailureReason('Failed', '  ')).toBe('Failed');
+    expect(withFailureReason('Failed', 'Unknown error')).toBe('Failed');
+    expect(withFailureReason('Failed', 'Failed')).toBe('Failed');
+  });
+
+  test('cuts a very long reason short', () => {
+    const out = withFailureReason('Failed', 'x'.repeat(500));
+    expect(out.length).toBeLessThan(240);
+    expect(out.endsWith('...')).toBe(true);
   });
 });

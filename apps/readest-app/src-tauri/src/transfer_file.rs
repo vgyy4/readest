@@ -18,8 +18,8 @@ use tokio_util::codec::{BytesCodec, FramedRead};
 
 use read_progress_stream::ReadProgressStream;
 
+use std::collections::HashMap;
 use std::time::Instant;
-use std::{collections::HashMap, sync::Arc};
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -83,6 +83,9 @@ pub enum Error {
     ContentLength(String),
     #[error("request failed with status code {0}: {1}")]
     HttpErrorCode(u16, String),
+    /// A download that did not complete; the message says why.
+    #[error("{0}")]
+    Download(String),
     #[error("permission denied: path not in filesystem scope: {0}")]
     Forbidden(String),
 }
@@ -157,13 +160,7 @@ pub async fn download_file(
     skip_ssl_verification: Option<bool>,
     on_progress: Channel<ProgressPayload>,
 ) -> Result<HashMap<String, String>> {
-    use futures::stream::{self, StreamExt};
-    use std::cmp::min;
-    use tokio::io::AsyncSeekExt;
-
     ensure_path_allowed(&app, file_path)?;
-
-    const PART_SIZE: u64 = 1024 * 1024;
 
     let client = reqwest::ClientBuilder::new()
         .danger_accept_invalid_certs(skip_ssl_verification.unwrap_or(false))
@@ -193,7 +190,7 @@ pub async fn download_file(
         if !response.status().is_success() {
             return Err(Error::HttpErrorCode(
                 response.status().as_u16(),
-                response.text().await.unwrap_or_default(),
+                crate::download_parts::tidy_body(&response.text().await.unwrap_or_default()),
             ));
         }
 
@@ -234,6 +231,16 @@ pub async fn download_file(
         range_req = range_req.header(key, value);
     }
     let range_resp = range_req.send().await?;
+    // A refusal (an error page from a proxy such as Cloudflare Access, or a signature the storage
+    // did not accept) is the answer, not something to guess around. An empty file is the one
+    // success that answers a Range request with 416.
+    let probe_status = range_resp.status();
+    if !probe_status.is_success() && probe_status != reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
+        return Err(Error::HttpErrorCode(
+            probe_status.as_u16(),
+            crate::download_parts::tidy_body(&range_resp.text().await.unwrap_or_default()),
+        ));
+    }
     let accept_ranges = range_resp
         .headers()
         .get("accept-ranges")
@@ -260,67 +267,21 @@ pub async fn download_file(
             .await;
     }
 
-    // Multi-part download with range access
-    let part_count = total.div_ceil(PART_SIZE);
-    let file = File::create(file_path).await?;
-    file.set_len(total).await?;
-
-    let file = Arc::new(tokio::sync::Mutex::new(file));
-    let progress = Arc::new(tokio::sync::Mutex::new(TransferStats::default()));
-
-    stream::iter(0..part_count)
-        .for_each_concurrent(8, |i| {
-            let client = client.clone();
-            let file = Arc::clone(&file);
-            let progress = Arc::clone(&progress);
-            let headers = headers.clone();
-            let url = url.to_string();
-            let on_progress = on_progress.clone();
-
-            async move {
-                let start = i * PART_SIZE;
-                let end = min(start + PART_SIZE - 1, total - 1);
-                let range_header = format!("bytes={start}-{end}");
-
-                let mut req = client.get(&url).header("Range", range_header);
-                for (key, value) in headers {
-                    req = req.header(key, value);
-                }
-
-                let resp = match req.send().await {
-                    Ok(r) => r,
-                    Err(_) => return,
-                };
-
-                if !resp.status().is_success()
-                    && resp.status() != reqwest::StatusCode::PARTIAL_CONTENT
-                {
-                    return;
-                }
-
-                let bytes = match resp.bytes().await {
-                    Ok(b) => b,
-                    Err(_) => return,
-                };
-
-                {
-                    let mut f = file.lock().await;
-                    f.seek(std::io::SeekFrom::Start(start)).await.unwrap();
-                    f.write_all(&bytes).await.unwrap();
-                }
-
-                {
-                    let mut stat = progress.lock().await;
-                    stat.record_chunk_transfer(bytes.len());
-                    let _ = on_progress.send(ProgressPayload {
-                        progress: stat.total_transferred,
-                        total,
-                        transfer_speed: stat.transfer_speed,
-                    });
-                }
-            }
-        })
-        .await;
+    // Multi-part download with range access: every part must arrive (see download_parts).
+    let state = std::sync::Mutex::new((TransferStats::default(), on_progress));
+    crate::download_parts::download_in_parts(&client, url, file_path, &headers, total, |len| {
+        if let Ok(mut guard) = state.lock() {
+            let (stats, channel) = &mut *guard;
+            stats.record_chunk_transfer(len);
+            let _ = channel.send(ProgressPayload {
+                progress: stats.total_transferred,
+                total,
+                transfer_speed: stats.transfer_speed,
+            });
+        }
+    })
+    .await
+    .map_err(Error::Download)?;
 
     Ok(resp_headers)
 }
@@ -376,7 +337,7 @@ pub async fn upload_file(
     } else {
         Err(Error::HttpErrorCode(
             response.status().as_u16(),
-            response.text().await.unwrap_or_default(),
+            crate::download_parts::tidy_body(&response.text().await.unwrap_or_default()),
         ))
     }
 }

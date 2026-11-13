@@ -3,6 +3,7 @@ import { AppService } from '@/types/system';
 import { getUserID } from '@/utils/access';
 import { fetchWithAuth } from '@/utils/fetch';
 import { needsMultipart } from '@/libs/multipart';
+import { friendlyDownloadError, isRetryableDownloadError } from '@/libs/downloadError';
 import { friendlyUploadError, MultipartUnsupported, uploadInParts } from '@/libs/multipartUpload';
 import {
   tauriUpload,
@@ -244,19 +245,34 @@ export const downloadFile = async ({
       await appService.writeFile(dst, 'None', await blob.arrayBuffer());
       return responseHeaders;
     } else {
-      return await tauriDownload(
-        downloadUrl,
-        dst,
-        onProgress,
-        headers,
-        undefined,
-        singleThreaded,
-        skipSslVerification,
-      );
+      try {
+        return await tauriDownload(
+          downloadUrl,
+          dst,
+          onProgress,
+          headers,
+          undefined,
+          singleThreaded,
+          skipSslVerification,
+        );
+      } catch (error) {
+        if (singleThreaded || !isRetryableDownloadError(error)) throw error;
+        // Several connections at once can fail where one does not (a proxy, a flaky link).
+        console.warn(`File '${dst}': trying again with a single connection:`, error);
+        return await tauriDownload(
+          downloadUrl,
+          dst,
+          onProgress,
+          headers,
+          undefined,
+          true,
+          skipSslVerification,
+        );
+      }
     }
   } catch (error) {
     console.error(`File '${dst}' download failed:`, error);
-    throw error;
+    throw friendlyDownloadError(error);
   }
 };
 

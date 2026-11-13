@@ -1,9 +1,9 @@
 name: Android APK
 
-# Builds an installable Readest APK (arm64 plus a universal one) signed with a
-# key that stays the same between builds when ANDROID_KEY_BASE64 / ANDROID_KEY_ALIAS
-# / ANDROID_KEY_PASSWORD are set as repository secrets, and otherwise with a
-# throwaway key (fine to try, but each such build must be uninstalled first).
+# Builds an installable Readest APK for 64-bit ARM phones (nearly every phone since 2017),
+# signed with a key that stays the same between builds when ANDROID_KEY_BASE64 /
+# ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD are set as repository secrets, and otherwise
+# with a throwaway key (fine to try, but each such build must be uninstalled first).
 on:
   workflow_dispatch:
   # Runs when this file changes; start it again by hand (Actions > Run workflow).
@@ -48,7 +48,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+          targets: aarch64-linux-android
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -123,14 +123,14 @@ jobs:
         run: |
           export NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
           apk_path=src-tauri/gen/android/app/build/outputs/apk/universal/release
-          pnpm tauri android build
-          cp "$apk_path/app-universal-release.apk" Readest_universal.apk
+          # One build, for arm64 only: the native code is the bulk of the app, and a universal
+          # APK carries it four times (the file Gradle names "universal" is just the one APK).
           pnpm tauri android build -t aarch64
           cp "$apk_path/app-universal-release.apk" Readest_arm64.apk
           ls -lh Readest_*.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Readest-android-apks
+          name: Readest-android-arm64
           path: apps/readest-app/Readest_*.apk
           if-no-files-found: error

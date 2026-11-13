@@ -47,3 +47,13 @@ export const getTransferMessages = (
     },
   };
 };
+
+/**
+ * The failure message with the reason underneath, so the toast says what to fix, not only that
+ * something failed. A reason that adds nothing is left out, and a long one is cut short.
+ */
+export const withFailureReason = (message: string, reason: string | undefined): string => {
+  const text = (reason ?? '').trim();
+  if (!text || text === message || /^unknown error$/i.test(text)) return message;
+  return `${message}\n${text.length > 220 ? `${text.slice(0, 217)}...` : text}`;
+};
