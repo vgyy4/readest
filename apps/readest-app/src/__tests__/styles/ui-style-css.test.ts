@@ -41,4 +41,23 @@ describe('ui-style.css', () => {
   it('falls back to solid surfaces where backdrop-filter is missing', () => {
     expect(css).toContain('@supports not ((backdrop-filter: blur(1px))');
   });
+
+  it('has a lite mode that removes blur, shadows, filters and transitions', () => {
+    expect(css).toContain("html[data-perf='low'] *");
+    const lite = css.slice(css.indexOf("html[data-perf='low'] *,"));
+    for (const rule of [
+      'transition: none !important',
+      'box-shadow: none !important',
+      'filter: none !important',
+    ]) {
+      expect(lite).toContain(rule);
+    }
+    // Spinners keep turning: only decorative animation is removed.
+    expect(lite).toContain(":not([class*='animate-spin'])");
+  });
+
+  it('styles the profile screens and the audiobook player for e-ink', () => {
+    expect(css).toContain("[data-eink='true'] .profile-avatar");
+    expect(css).toContain("[data-eink='true'] .audiobook-player");
+  });
 });

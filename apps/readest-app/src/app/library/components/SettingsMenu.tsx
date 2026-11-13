@@ -11,6 +11,8 @@ import {
   MdOutlineSensors,
   MdOutlineColorLens,
   MdSwitchAccount,
+  MdSpeed,
+  MdTabletMac,
 } from 'react-icons/md';
 
 import { isTauriAppPlatform, isWebAppPlatform } from '@/services/environment';
@@ -23,8 +25,11 @@ import { getCachedProfiles } from '@/libs/profiles/cache';
 import { hasProfiles, isInsideProfile, leaveProfile } from '@/libs/profiles/launch';
 import { useEnv } from '@/context/EnvContext';
 import { useThemeStore } from '@/store/themeStore';
-import { nextUiStyle, uiStyleLabel } from '@/libs/uiStyle';
-import { useUiStyle } from '@/hooks/useUiStyle';
+import { nextPerfMode, nextUiStyle, perfModeLabel, uiStyleLabel } from '@/libs/uiStyle';
+import { usePerfMode, useUiStyle } from '@/hooks/useUiStyle';
+import { useEinkMode } from '@/hooks/useEinkMode';
+import { saveViewSettings } from '@/helpers/settings';
+import { useIsEink } from '@/hooks/useHtmlAttribute';
 import { useQuotaStats } from '@/hooks/useQuotaStats';
 import { useFileSyncStore } from '@/store/fileSyncStore';
 import {
@@ -72,6 +77,13 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
   const { userProfilePlan, quotas } = useQuotaStats(true);
   const { themeMode, setThemeMode } = useThemeStore();
   const [uiStyle, setUiStyle] = useUiStyle();
+  const [perfMode, setPerfMode] = usePerfMode();
+  const isEink = useIsEink();
+  const { applyEinkMode } = useEinkMode();
+  const toggleEink = () => {
+    applyEinkMode(!isEink);
+    void saveViewSettings(envConfig, '', 'isEink', !isEink);
+  };
   const { settings, setSettingsDialogOpen } = useSettingsStore();
   const [isAlwaysOnTop, setIsAlwaysOnTop] = useState(settings.alwaysOnTop);
   const [isAlwaysShowStatusBar, setIsAlwaysShowStatusBar] = useState(settings.alwaysShowStatusBar);
@@ -449,6 +461,12 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
         }
         onClick={cycleThemeMode}
       />
+      <MenuItem
+        label={`${_('Lite mode')}: ${perfModeLabel(_, perfMode)}`}
+        Icon={MdSpeed}
+        onClick={() => setPerfMode(nextPerfMode(perfMode))}
+      />
+      <MenuItem label={_('E-ink mode')} Icon={MdTabletMac} toggled={isEink} onClick={toggleEink} />
       {user && (hasProfiles(getCachedProfiles()) || isInsideProfile()) && (
         <MenuItem label={_('Switch profile')} Icon={MdSwitchAccount} onClick={leaveProfile} />
       )}

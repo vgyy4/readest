@@ -127,3 +127,41 @@ export const copyObject = async (
     return await s3Storage.copyObject(bucketName, sourceFileKey, destFileKey);
   }
 };
+
+// Multipart upload is for the S3-compatible backend (MinIO and friends); R2 keeps single PUTs.
+export const supportsMultipart = () => getStorageType() !== 'r2';
+
+const s3Bucket = (bucketName?: string) => bucketName || process.env['S3_BUCKET_NAME'] || '';
+
+export const createMultipartUpload = (fileKey: string, bucketName?: string) =>
+  s3Storage.createMultipartUpload(s3Bucket(bucketName), fileKey);
+
+export const getUploadPartSignedUrl = (
+  fileKey: string,
+  uploadId: string,
+  partNumber: number,
+  contentLength: number,
+  expiresIn: number,
+  bucketName?: string,
+) =>
+  s3Storage.getUploadPartSignedUrl(
+    s3Bucket(bucketName),
+    fileKey,
+    uploadId,
+    partNumber,
+    contentLength,
+    expiresIn,
+  );
+
+export const listUploadedParts = (fileKey: string, uploadId: string, bucketName?: string) =>
+  s3Storage.listParts(s3Bucket(bucketName), fileKey, uploadId);
+
+export const completeMultipartUpload = (
+  fileKey: string,
+  uploadId: string,
+  parts: { PartNumber: number; ETag: string }[],
+  bucketName?: string,
+) => s3Storage.completeMultipartUpload(s3Bucket(bucketName), fileKey, uploadId, parts);
+
+export const abortMultipartUpload = (fileKey: string, uploadId: string, bucketName?: string) =>
+  s3Storage.abortMultipartUpload(s3Bucket(bucketName), fileKey, uploadId);

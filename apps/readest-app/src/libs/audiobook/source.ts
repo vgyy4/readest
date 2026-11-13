@@ -51,3 +51,31 @@ export const describeMediaError = (code: number | undefined) => {
       return 'This audio file could not be played.';
   }
 };
+
+export type PlaybackSource = 'loopback' | 'asset' | 'blob';
+
+/** Past this size a file is not read into memory: a 2 GB iPad would run out. */
+export const MAX_BLOB_BYTES = 120 * 1024 * 1024;
+
+/**
+ * Ways to hand a file to the <audio> element, best first; the player moves to the next one
+ * when a source does not play.
+ *  - loopback: a streaming address on 127.0.0.1 served by the app (needed on iOS, whose web
+ *    view cannot play from the asset protocol).
+ *  - asset: Tauri's asset protocol (streams, never loads the file into memory).
+ *  - blob: the whole file in memory, only for files small enough, as a last resort.
+ */
+export const playbackPlan = ({
+  tauri,
+  ios,
+  size,
+}: {
+  tauri: boolean;
+  ios: boolean;
+  size: number;
+}): PlaybackSource[] => {
+  if (!tauri) return ['blob'];
+  const order: PlaybackSource[] = ios ? ['loopback', 'asset'] : ['asset', 'loopback'];
+  if (size <= MAX_BLOB_BYTES) order.push('blob');
+  return order;
+};

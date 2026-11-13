@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-serve-media-file"
+description = "Enables the serve_media_file command without any pre-configured scope."
+commands.allow = ["serve_media_file"]
+
+[[permission]]
+identifier = "deny-serve-media-file"
+description = "Denies the serve_media_file command without any pre-configured scope."
+commands.deny = ["serve_media_file"]

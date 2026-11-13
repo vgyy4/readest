@@ -3,7 +3,12 @@ import {
   applyUiStyle,
   DEFAULT_UI_STYLE,
   getUiStyle,
+  isLiteActive,
   isLowEndDevice,
+  nextPerfMode,
+  getPerfMode,
+  setPerfMode,
+  PERF_KEY,
   isUiStyle,
   nextUiStyle,
   setUiStyle,
@@ -72,5 +77,41 @@ describe('ui style', () => {
     };
     expect(run('Mozilla/5.0 (iPad; CPU OS 15_8 like Mac OS X) Mobile/15E148')).toBe('low');
     expect(run('Mozilla/5.0 (iPad; CPU OS 17_4 like Mac OS X) Mobile/15E148')).toBeNull();
+  });
+
+  it('lite mode follows the device unless forced on or off', () => {
+    const ipadAir2 = 'Mozilla/5.0 (iPad; CPU OS 15_8 like Mac OS X) Mobile/15E148';
+    expect(isLiteActive('auto', ipadAir2)).toBe(true);
+    expect(isLiteActive('off', ipadAir2)).toBe(false);
+    expect(isLiteActive('on', 'Mozilla/5.0 (Linux; Android 14)', 8, 8)).toBe(true);
+    expect(isLiteActive('auto', 'Mozilla/5.0 (Linux; Android 14)', 8, 8)).toBe(false);
+  });
+
+  it('stores the lite mode, applies it, and cycles auto, on, off', () => {
+    expect(getPerfMode()).toBe('auto');
+    setPerfMode('on');
+    expect(getPerfMode()).toBe('on');
+    expect(document.documentElement.getAttribute('data-perf')).toBe('low');
+    setPerfMode('off');
+    expect(document.documentElement.hasAttribute('data-perf')).toBe(false);
+    expect(nextPerfMode('auto')).toBe('on');
+    expect(nextPerfMode('on')).toBe('off');
+    expect(nextPerfMode('off')).toBe('auto');
+  });
+
+  it('the boot script honours a forced lite mode, either way', () => {
+    const run = (mode: string) => {
+      localStorage.setItem(PERF_KEY, mode);
+      document.documentElement.removeAttribute('data-perf');
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (iPad; CPU OS 15_8 like Mac OS X) Mobile/15E148',
+        configurable: true,
+      });
+      new Function(UI_STYLE_BOOT_SCRIPT)();
+      return document.documentElement.getAttribute('data-perf');
+    };
+    expect(run('off')).toBeNull(); // an old iPad, but the user turned lite mode off
+    expect(run('auto')).toBe('low');
+    expect(run('on')).toBe('low');
   });
 });

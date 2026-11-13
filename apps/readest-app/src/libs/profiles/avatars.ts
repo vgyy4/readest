@@ -258,7 +258,7 @@ const CRITTERS: { name: string; draw: Draw; looks: [string, string, string, stri
       ['#f4f1de', '#b8b39a', '#ffffff', '#ff8fa3'],
     ],
     draw: (c) =>
-      `<circle cx="48" cy="52" r="32" fill="${c.fur}"/><circle cx="66" cy="42" r="28" fill="${c.bg}"/><circle cx="34" cy="56" r="3.2" fill="${INK}"/><path d="M26 66q7 6 14 0" fill="none" stroke="${INK}" stroke-width="2.4" stroke-linecap="round"/><circle cx="26" cy="62" r="4" fill="${c.accent}" opacity=".5"/><circle cx="74" cy="22" r="2.6" fill="${c.light}"/><circle cx="84" cy="44" r="1.8" fill="${c.light}"/><circle cx="76" cy="68" r="2.2" fill="${c.light}"/>`,
+      `<path d="M48.7 20A32 32 0 1 0 75.5 68.3A28 28 0 0 1 48.7 20z" fill="${c.fur}"/><circle cx="34" cy="56" r="3.2" fill="${INK}"/><path d="M26 66q7 6 14 0" fill="none" stroke="${INK}" stroke-width="2.4" stroke-linecap="round"/><circle cx="26" cy="62" r="4" fill="${c.accent}" opacity=".5"/><circle cx="74" cy="22" r="2.6" fill="${c.light}"/><circle cx="84" cy="44" r="1.8" fill="${c.light}"/><circle cx="76" cy="68" r="2.2" fill="${c.light}"/>`,
   },
   {
     name: 'sun',
@@ -276,8 +276,10 @@ export interface Avatar {
   svg: string;
 }
 
+// Pictures are shown as circles, so the character is drawn a little smaller to keep ears,
+// horns and rays inside the crop.
 const tile = (bg: string, body: string) =>
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="${bg}"/>${body}</svg>`;
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="${bg}"/><g transform="translate(7 8) scale(.86)">${body}</g></svg>`;
 
 // Soft backgrounds, cycled so neighbours differ.
 const BACKGROUNDS = [
@@ -321,8 +323,45 @@ const byId = new Map(AVATARS.map((a) => [a.id, a]));
 export const isAvatarId = (value: unknown): value is string =>
   typeof value === 'string' && /^av-\d{2}$/.test(value);
 
+const LEVELS = [0x00, 0x55, 0xaa, 0xff] as const;
+const gray = (hex: string) => {
+  const n = parseInt(hex.slice(1), 16);
+  const lum = 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255);
+  // Four clear gray levels: e-ink panels render in-between values muddy.
+  const level = LEVELS[lum < 64 ? 0 : lum < 130 ? 1 : lum < 205 ? 2 : 3]!;
+  return `#${level.toString(16).padStart(2, '0').repeat(3)}`;
+};
+
+/**
+ * The same picture for an e-ink screen: pure black, white and two grays, a white tile, and a
+ * black outline around every filled shape so light colors (a yellow chick) keep their shape.
+ */
+export const einkSvg = (svg: string): string => {
+  const tinted = svg
+    .replace(
+      /<rect width="100" height="100" fill="#[0-9a-f]{6}"\/>/i,
+      '<rect width="100" height="100" fill="#fff"/>',
+    )
+    .replace(/#[0-9a-f]{6}/gi, (hex) => gray(hex));
+  return tinted.replace(
+    /<(circle|ellipse|path|rect)\b([^>]*?)(\/?)>/g,
+    (match, tag, attrs, close) => {
+      if (/fill="none"|stroke=|opacity=|width="100" height="100"/.test(attrs)) return match;
+      // Black features and tiny highlights (an eye's glint) stay as they are.
+      if (/fill="#000000"/.test(attrs)) return match;
+      const radius = /\br="([\d.]+)"/.exec(attrs);
+      if (radius && Number(radius[1]) < 3) return match;
+      return `<${tag}${attrs} stroke="#000" stroke-width="2" stroke-linejoin="round"${close}>`;
+    },
+  );
+};
+
 /** A picture as a data URI for an <img>, or null for an unknown id. */
-export const avatarSrc = (id: string | null | undefined): string | null => {
+export const avatarSrc = (
+  id: string | null | undefined,
+  { eink = false }: { eink?: boolean } = {},
+): string | null => {
   const avatar = id ? byId.get(id) : undefined;
-  return avatar ? `data:image/svg+xml;utf8,${encodeURIComponent(avatar.svg)}` : null;
+  if (!avatar) return null;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(eink ? einkSvg(avatar.svg) : avatar.svg)}`;
 };

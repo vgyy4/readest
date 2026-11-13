@@ -9,8 +9,15 @@ import type { BaseDir } from '@/types/system';
 import { withReadingStatus } from '@/app/library/utils/libraryUtils';
 import { parseAudiobook } from '@/libs/audiobook/metadata';
 import { createAudiobookSession } from '@/libs/audiobook/session';
-import { audioMimeType, blobFromFile, describeMediaError } from '@/libs/audiobook/source';
-import { CoverColor, sampleCoverColor } from '@/libs/audiobook/palette';
+import { invoke } from '@tauri-apps/api/core';
+import {
+  audioMimeType,
+  blobFromFile,
+  describeMediaError,
+  type PlaybackSource,
+  playbackPlan,
+} from '@/libs/audiobook/source';
+import { blurredCoverUrl, CoverColor, sampleCoverColor } from '@/libs/audiobook/palette';
 import {
   AudioChapter,
   chapterIndexAt,
@@ -67,6 +74,7 @@ export const useAudiobook = (book: Book) => {
   const [src, setSrc] = useState('');
   const [coverUrl, setCoverUrl] = useState(book.coverImageUrl ?? '');
   const [color, setColor] = useState<CoverColor | null>(null);
+  const [coverBlur, setCoverBlur] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [chapters, setChapters] = useState<AudioChapter[]>([]);
   const [playing, setPlaying] = useState(false);
@@ -85,9 +93,16 @@ export const useAudiobook = (book: Book) => {
   const lastSaved = useRef({ config: 0, library: 0 });
   const chaptersRef = useRef<AudioChapter[]>([]);
   chaptersRef.current = chapters;
-  const sourceRef = useRef<{ path: string; base: BaseDir } | null>(null);
+  // How the file reaches the <audio> element, and which way we are on (see playbackPlan).
+  const planRef = useRef<{
+    order: PlaybackSource[];
+    index: number;
+    path: string;
+    base: BaseDir;
+    absPath: string;
+    mime: string;
+  } | null>(null);
   const blobUrlRef = useRef('');
-  const triedBlob = useRef(false);
   const sessionRef = useRef<ReturnType<typeof createAudiobookSession> | null>(null);
 
   const persist = useCallback(
@@ -128,6 +143,25 @@ export const useAudiobook = (book: Book) => {
     [appService, book, envConfig, settings, updateBook],
   );
 
+  /** The address for the <audio> element for one way of reaching the file. */
+  const sourceUrl = async (kind: PlaybackSource): Promise<string> => {
+    const plan = planRef.current;
+    if (!appService || !plan) throw new Error('The audio file is not ready.');
+    if (kind === 'loopback') {
+      return invoke<string>('serve_media_file', { filePath: plan.absPath, mimeType: plan.mime });
+    }
+    if (kind === 'asset') return appService.getImageURL(plan.absPath);
+    const whole = await appService.openFile(plan.path, plan.base);
+    const blob =
+      appService.appPlatform === 'tauri'
+        ? await blobFromFile(whole, plan.mime)
+        : new Blob([whole], { type: plan.mime });
+    (whole as { close?: () => Promise<void> }).close?.();
+    if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+    blobUrlRef.current = URL.createObjectURL(blob);
+    return blobUrlRef.current;
+  };
+
   // Find the file, its chapters and cover, and where this profile left off.
   useEffect(() => {
     let cancelled = false;
@@ -147,25 +181,17 @@ export const useAudiobook = (book: Book) => {
         const file = await appService.openFile(path, base);
         const info = await parseAudiobook(file);
         (file as { close?: () => Promise<void> }).close?.();
-        const mime = audioMimeType(book.format);
-        const sourceFile = { path, base };
-        sourceRef.current = sourceFile;
-        // Android and desktop stream the file through an asset URL (it is never loaded into
-        // memory). iOS cannot play media from that URL, so it gets a typed blob instead, and
-        // any platform falls back to one if the asset URL does not play (see onError).
-        let url: string;
-        if (appService.appPlatform === 'tauri' && !appService.isIOSApp) {
-          url = await appService.getImageURL(await appService.resolveFilePath(path, base));
-        } else {
-          const whole = await appService.openFile(path, base);
-          url = URL.createObjectURL(
-            appService.appPlatform === 'tauri'
-              ? await blobFromFile(whole, mime)
-              : new Blob([whole], { type: mime }),
-          );
-          blobUrlRef.current = url;
-          (whole as { close?: () => Promise<void> }).close?.();
-        }
+        const tauri = appService.appPlatform === 'tauri';
+        const absPath = tauri ? await appService.resolveFilePath(path, base) : '';
+        planRef.current = {
+          order: playbackPlan({ tauri, ios: !!appService.isIOSApp, size: file.size }),
+          index: 0,
+          path,
+          base,
+          absPath,
+          mime: audioMimeType(book.format),
+        };
+        const url = await sourceUrl(planRef.current.order[0]!);
         const config = await appService.loadBookConfig(book, settings);
         if (cancelled) return;
         // The embedded cover is same-origin, so its colors can be read.
@@ -197,6 +223,7 @@ export const useAudiobook = (book: Book) => {
     if (!coverUrl) return;
     let cancelled = false;
     void sampleCoverColor(coverUrl).then((c) => !cancelled && setColor(c));
+    void blurredCoverUrl(coverUrl).then((u) => !cancelled && setCoverBlur(u));
     return () => {
       cancelled = true;
     };
@@ -447,16 +474,13 @@ export const useAudiobook = (book: Book) => {
     },
     onError: () => {
       const audio = audioRef.current;
-      const source = sourceRef.current;
-      // The asset URL did not play: read the file into a typed blob and try that once.
-      if (appService && source && !triedBlob.current && !blobUrlRef.current) {
-        triedBlob.current = true;
+      const plan = planRef.current;
+      // This way of reaching the file did not play: try the next one, from the same spot.
+      if (plan && plan.index + 1 < plan.order.length) {
+        plan.index += 1;
         void (async () => {
           try {
-            const whole = await appService.openFile(source.path, source.base);
-            const url = URL.createObjectURL(await blobFromFile(whole, audioMimeType(book.format)));
-            blobUrlRef.current = url;
-            (whole as { close?: () => Promise<void> }).close?.();
+            const url = await sourceUrl(plan.order[plan.index]!);
             resume.current = latest.current.position;
             setSrc(url);
           } catch {
@@ -476,6 +500,7 @@ export const useAudiobook = (book: Book) => {
     error,
     coverUrl,
     color,
+    coverBlur,
     chapters,
     chapterIndex,
     chapter: chapters[chapterIndex],

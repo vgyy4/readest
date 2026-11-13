@@ -37,6 +37,8 @@ const client = vi.hoisted(() => ({
   switchProfile: vi.fn(),
 }));
 vi.mock('@/libs/profiles/client', () => client);
+const push = vi.hoisted(() => vi.fn());
+vi.mock('@/libs/profiles/pushBooks', () => ({ ensureBooksOnServer: push }));
 
 const book = { hash: 'abc', title: 'Dune' };
 const profiles = [
@@ -46,6 +48,8 @@ const profiles = [
 
 beforeEach(() => {
   Object.values(client).forEach((fn) => fn.mockReset());
+  push.mockReset();
+  push.mockResolvedValue(undefined);
   client.fetchProfiles.mockResolvedValue({ hasPin: false, profiles });
   client.fetchBookAccess.mockResolvedValue(['kid']);
   client.setBookAccess.mockResolvedValue(undefined);
@@ -70,6 +74,17 @@ describe('BookAccessDialog', () => {
     fireEvent.click(screen.getByText('Save'));
     await waitFor(() => expect(client.setBookAccess).toHaveBeenCalledWith('abc', ['teen'], ''));
     expect(onClose).toHaveBeenCalled();
+    expect(push).toHaveBeenCalledWith(['abc']);
+  });
+
+  it('says why when the book cannot be sent to the server, and changes nothing', async () => {
+    push.mockRejectedValue(new Error('offline'));
+    render(<BookAccessDialog book={book} onClose={() => {}} />);
+    await screen.findByText('Kid');
+    fireEvent.click(screen.getAllByRole('checkbox')[1]!);
+    fireEvent.click(screen.getByText('Save'));
+    expect((await screen.findByRole('alert')).textContent).toContain('Could not send this book');
+    expect(client.setBookAccess).not.toHaveBeenCalled();
   });
 
   it('asks for the master PIN once, then remembers it for the session', async () => {

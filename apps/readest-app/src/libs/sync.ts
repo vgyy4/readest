@@ -1,7 +1,7 @@
 import { Book, BookConfig, BookNote, BookDataRecord } from '@/types/book';
 import { getAPIBaseUrl } from '@/services/environment';
 import { getAccessToken } from '@/utils/access';
-import { fetchWithTimeout } from '@/utils/fetch';
+import { fetchWithTimeout, getServerHeaders } from '@/utils/fetch';
 
 const SYNC_API_ENDPOINT = getAPIBaseUrl() + '/sync';
 
@@ -75,6 +75,7 @@ export class SyncClient {
       {
         headers: {
           Authorization: `Bearer ${token}`,
+          ...getServerHeaders(url),
         },
       },
       15000,
@@ -103,6 +104,7 @@ export class SyncClient {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
+          ...getServerHeaders(SYNC_API_ENDPOINT),
         },
         body: JSON.stringify(payload),
       },

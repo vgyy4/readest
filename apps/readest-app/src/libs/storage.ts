@@ -2,6 +2,8 @@ import { getAPIBaseUrl, isWebAppPlatform } from '@/services/environment';
 import { AppService } from '@/types/system';
 import { getUserID } from '@/utils/access';
 import { fetchWithAuth } from '@/utils/fetch';
+import { needsMultipart } from '@/libs/multipart';
+import { friendlyUploadError, MultipartUnsupported, uploadInParts } from '@/libs/multipartUpload';
 import {
   tauriUpload,
   tauriDownload,
@@ -18,6 +20,7 @@ const API_ENDPOINTS = {
   stats: getAPIBaseUrl() + '/storage/stats',
   list: getAPIBaseUrl() + '/storage/list',
   purge: getAPIBaseUrl() + '/storage/purge',
+  multipart: getAPIBaseUrl() + '/storage/multipart',
 };
 
 export const createProgressHandler = (
@@ -48,6 +51,46 @@ export const uploadFile = async (
   media?: string,
 ) => {
   try {
+    // A big file (an audiobook) goes up in parts: behind Cloudflare one request may not
+    // exceed 100 MB. A server that cannot do that gets the file in one piece as before.
+    if (!temp && !media && needsMultipart(file.size)) {
+      try {
+        await uploadInParts(file.name, file.size, bookHash, onProgress, {
+          request: async (body) =>
+            (
+              await fetchWithAuth(API_ENDPOINTS.multipart, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+              })
+            ).json(),
+          putPart: async (part, onBytes) => {
+            const handler = (p: ProgressPayload) => onBytes(p.progress, p.transferSpeed);
+            if (isWebAppPlatform()) {
+              await webUpload(
+                file.slice(part.start, part.start + part.size),
+                part.uploadUrl,
+                handler,
+              );
+            } else {
+              await tauriUpload(
+                part.uploadUrl,
+                fileFullPath,
+                'PUT',
+                handler,
+                undefined,
+                part.start,
+                part.size,
+              );
+            }
+          },
+        });
+        return undefined;
+      } catch (error) {
+        if (!(error instanceof MultipartUnsupported)) throw error;
+      }
+    }
+
     const response = await fetchWithAuth(API_ENDPOINTS.upload, {
       method: 'POST',
       headers: {
@@ -72,10 +115,7 @@ export const uploadFile = async (
     return temp || media ? downloadUrl : undefined;
   } catch (error) {
     console.error('File upload failed:', error);
-    if (error instanceof Error) {
-      throw error;
-    }
-    throw new Error('File upload failed');
+    throw friendlyUploadError(error);
   }
 };
 

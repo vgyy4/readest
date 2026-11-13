@@ -1,5 +1,6 @@
 import clsx from 'clsx';
 import React from 'react';
+import { useIsEink } from '@/hooks/useHtmlAttribute';
 import { avatarSrc } from '@/libs/profiles/avatars';
 
 interface ProfileAvatarProps {
@@ -9,14 +10,14 @@ interface ProfileAvatarProps {
   className?: string;
 }
 
-/** A profile's picture; before it has one, its first letter on a color taken from its name. */
+/** A profile's picture as a circle; before it has one, its first letter on a color taken from its name. */
 const ProfileAvatar: React.FC<ProfileAvatarProps> = ({ avatar, name, className }) => {
-  const src = avatarSrc(avatar);
+  const eink = useIsEink();
+  const src = avatarSrc(avatar, { eink });
   const hue = [...name].reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % 360;
   return (
     <div
-      className={clsx('relative shrink-0 overflow-hidden', className)}
-      style={{ borderRadius: '26%' }}
+      className={clsx('profile-avatar relative shrink-0 overflow-hidden rounded-full', className)}
     >
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element

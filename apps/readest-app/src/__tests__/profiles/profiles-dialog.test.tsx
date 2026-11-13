@@ -38,6 +38,8 @@ const client = vi.hoisted(() => ({
   chooseAvatar: vi.fn(),
 }));
 vi.mock('@/libs/profiles/client', () => client);
+const push = vi.hoisted(() => vi.fn());
+vi.mock('@/libs/profiles/pushBooks', () => ({ ensureBooksOnServer: push }));
 
 const KID = '22222222-2222-2222-2222-222222222222';
 const books = [
@@ -48,6 +50,8 @@ const books = [
 
 beforeEach(() => {
   Object.values(client).forEach((fn) => fn.mockReset());
+  push.mockReset();
+  push.mockResolvedValue(undefined);
   client.fetchProfiles.mockResolvedValue({ hasPin: false, profiles: [{ id: KID, name: 'Kid' }] });
 });
 afterEach(() => {
@@ -90,6 +94,36 @@ describe('ProfilesDialog (master)', () => {
     fireEvent.click(emma!);
     fireEvent.click(screen.getByText('Save'));
     await waitFor(() => expect(client.setProfileBooks).toHaveBeenCalledWith(KID, ['a', 'b'], ''));
+    // The server shares its own copy of each entry, so it is sent first.
+    expect(push).toHaveBeenCalledWith(['a', 'b']);
+    expect(push.mock.invocationCallOrder[0]).toBeLessThan(
+      client.setProfileBooks.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it('does not share anything when the books cannot be sent to the server first', async () => {
+    client.fetchProfileBooks.mockResolvedValue(['a']);
+    push.mockRejectedValue(new Error('offline'));
+    render(<ProfilesDialog books={books} onClose={() => {}} />);
+    await screen.findByText('Kid');
+    fireEvent.click(screen.getByText('Books'));
+    await screen.findByText('Dune');
+    fireEvent.click(screen.getByText('Save'));
+    expect((await screen.findByRole('alert')).textContent).toContain('Could not send your books');
+    expect(client.setProfileBooks).not.toHaveBeenCalled();
+  });
+
+  it('marks books that are not uploaded yet', async () => {
+    client.fetchProfileBooks.mockResolvedValue([]);
+    const pending = [
+      { hash: 'a', title: 'Dune', uploadedAt: 1 },
+      { hash: 'b', title: 'Emma', uploadedAt: null },
+    ] as Book[];
+    render(<ProfilesDialog books={pending} onClose={() => {}} />);
+    await screen.findByText('Kid');
+    fireEvent.click(screen.getByText('Books'));
+    await screen.findByText('Emma');
+    expect(screen.getAllByText('Not uploaded yet')).toHaveLength(1);
   });
 
   it('asks for the PIN first when one is set and sends it with later changes', async () => {

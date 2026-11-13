@@ -82,3 +82,31 @@ describe('a server chosen on the sign-in screen', () => {
     expect(getAccessHeaders('https://other.example.org/')).toEqual({});
   });
 });
+
+describe('installAccessFetch', () => {
+  it('adds the token to any request to our server, from any caller, and only those', async () => {
+    vi.stubEnv('NEXT_PUBLIC_CF_ACCESS_CLIENT_ID', 'id.access');
+    vi.stubEnv('NEXT_PUBLIC_CF_ACCESS_CLIENT_SECRET', 'secret');
+    vi.stubEnv('NEXT_PUBLIC_API_BASE_URL', 'https://books.example.com');
+    const seen: Headers[] = [];
+    const original = window.fetch;
+    window.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push(new Headers(init?.headers));
+      return new Response('ok');
+    }) as typeof fetch;
+    vi.resetModules();
+    const { installAccessFetch } = await import('@/libs/cloudflareAccess');
+    installAccessFetch();
+    installAccessFetch(); // twice is harmless
+    try {
+      await window.fetch('https://books.example.com/api/sync', { headers: { A: 'b' } });
+      await window.fetch('https://elsewhere.example.org/x');
+      expect(seen[0]!.get('cf-access-client-id')).toBe('id.access');
+      expect(seen[0]!.get('a')).toBe('b');
+      expect(seen[1]!.get('cf-access-client-id')).toBeNull();
+      expect(seen).toHaveLength(2);
+    } finally {
+      window.fetch = original;
+    }
+  });
+});

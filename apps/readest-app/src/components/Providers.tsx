@@ -35,6 +35,7 @@ import { CommandPaletteProvider, CommandPalette } from '@/components/command-pal
 import AtmosphereOverlay from '@/components/AtmosphereOverlay';
 import AppLockScreen from '@/components/AppLockScreen';
 import ProfileGate from '@/components/profiles/ProfileGate';
+import { installAccessFetch } from '@/libs/cloudflareAccess';
 import AppLockDialog from '@/components/settings/AppLockDialog';
 import PassphrasePrompt from '@/components/PassphrasePrompt';
 import TelemetryConsentDialog from '@/components/TelemetryConsentDialog';
@@ -138,6 +139,7 @@ const Providers = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   useEffect(() => {
+    installAccessFetch();
     loadDataTheme();
     if (appService) {
       initSystemThemeListener(appService);

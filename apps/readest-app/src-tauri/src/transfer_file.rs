@@ -12,7 +12,7 @@ use tauri::{command, ipc::Channel, AppHandle};
 use tauri_plugin_fs::FsExt;
 use tokio::{
     fs::File,
-    io::{AsyncWriteExt, BufWriter},
+    io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufWriter},
 };
 use tokio_util::codec::{BytesCodec, FramedRead};
 
@@ -116,7 +116,7 @@ fn is_within_app_storage(file_path: &str, app_identifier: &str) -> bool {
 /// privileged Tauri origin — see GHSA-55vr-pvq5-6fmg. We require an absolute,
 /// traversal-free path that is either granted by the fs scope (persisted dialog
 /// grants for custom/external roots) or lives inside the app's own storage.
-fn ensure_path_allowed(app: &AppHandle, file_path: &str) -> Result<()> {
+pub(crate) fn ensure_path_allowed(app: &AppHandle, file_path: &str) -> Result<()> {
     if has_disallowed_components(file_path) {
         return Err(Error::Forbidden(file_path.to_string()));
     }
@@ -325,7 +325,17 @@ pub async fn download_file(
     Ok(resp_headers)
 }
 
+/// Which bytes of a `total`-byte file to send: from `offset` for `length` (default: to the
+/// end). Lets a big file go up in parts, each its own request, which is how an audiobook gets
+/// past a proxy that caps a single request (Cloudflare: 100 MB).
+fn upload_range(total: u64, offset: Option<u64>, length: Option<u64>) -> (u64, u64) {
+    let start = offset.unwrap_or(0).min(total);
+    let len = length.unwrap_or(total - start).min(total - start);
+    (start, len)
+}
+
 #[command]
+#[allow(clippy::too_many_arguments)]
 pub async fn upload_file(
     app: AppHandle,
     url: &str,
@@ -333,11 +343,17 @@ pub async fn upload_file(
     method: &str,
     headers: HashMap<String, String>,
     on_progress: Channel<ProgressPayload>,
+    offset: Option<u64>,
+    length: Option<u64>,
 ) -> Result<String> {
     ensure_path_allowed(&app, file_path)?;
 
-    let file = File::open(file_path).await?;
-    let file_len = file.metadata().await.unwrap().len();
+    let mut file = File::open(file_path).await?;
+    let total = file.metadata().await?.len();
+    let (start, len) = upload_range(total, offset, length);
+    if start > 0 {
+        file.seek(std::io::SeekFrom::Start(start)).await?;
+    }
 
     let client = reqwest::Client::new();
     let mut request = match method.to_uppercase().as_str() {
@@ -347,8 +363,8 @@ pub async fn upload_file(
     };
 
     request = request
-        .header(reqwest::header::CONTENT_LENGTH, file_len)
-        .body(file_to_body(on_progress.clone(), file, file_len));
+        .header(reqwest::header::CONTENT_LENGTH, len)
+        .body(file_to_body(on_progress.clone(), file.take(len), len));
 
     for (key, value) in headers {
         request = request.header(&key, value);
@@ -365,8 +381,11 @@ pub async fn upload_file(
     }
 }
 
-fn file_to_body(channel: Channel<ProgressPayload>, file: File, file_len: u64) -> reqwest::Body {
-    let stream = FramedRead::new(file, BytesCodec::new()).map_ok(|r| r.freeze());
+fn file_to_body<R>(channel: Channel<ProgressPayload>, reader: R, file_len: u64) -> reqwest::Body
+where
+    R: AsyncRead + Send + Sync + 'static,
+{
+    let stream = FramedRead::new(reader, BytesCodec::new()).map_ok(|r| r.freeze());
 
     let mut stats = TransferStats::default();
     reqwest::Body::wrap_stream(ReadProgressStream::new(
@@ -384,7 +403,16 @@ fn file_to_body(channel: Channel<ProgressPayload>, file: File, file_len: u64) ->
 
 #[cfg(test)]
 mod tests {
-    use super::{has_disallowed_components, is_within_app_storage};
+    use super::{has_disallowed_components, is_within_app_storage, upload_range};
+
+    #[test]
+    fn upload_range_picks_the_requested_part() {
+        assert_eq!(upload_range(100, None, None), (0, 100));
+        assert_eq!(upload_range(100, Some(30), Some(20)), (30, 20));
+        assert_eq!(upload_range(100, Some(90), Some(50)), (90, 10));
+        assert_eq!(upload_range(100, Some(150), Some(5)), (100, 0));
+        assert_eq!(upload_range(100, Some(60), None), (60, 40));
+    }
 
     #[test]
     fn app_storage_fallback_accepts_app_paths() {

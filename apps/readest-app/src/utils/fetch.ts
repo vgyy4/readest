@@ -13,18 +13,29 @@ export const fetchWithTimeout = (url: string, options: RequestInit = {}, timeout
   }).finally(() => clearTimeout(id));
 };
 
+/**
+ * Headers every request to our own server needs besides the sign-in token: the profile the
+ * device is acting as (so progress, notes and the library stay separate) and, behind
+ * Cloudflare Access, the service token.
+ */
+export const getServerHeaders = (url: string): Record<string, string> => {
+  const profileId = getActiveProfileId();
+  return {
+    ...getAccessHeaders(url),
+    ...(profileId ? { [PROFILE_HEADER]: profileId } : {}),
+  };
+};
+
 export const fetchWithAuth = async (url: string, options: RequestInit) => {
   const token = await getAccessToken();
   if (!token) {
     throw new Error('Not authenticated');
   }
   // Acting as a profile: the server maps the request to that profile's data.
-  const profileId = getActiveProfileId();
   const headers = {
     ...options.headers,
     Authorization: `Bearer ${token}`,
-    ...getAccessHeaders(url),
-    ...(profileId ? { [PROFILE_HEADER]: profileId } : {}),
+    ...getServerHeaders(url),
   };
 
   const response = await fetch(url, { ...options, headers });

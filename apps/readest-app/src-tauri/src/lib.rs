@@ -36,6 +36,7 @@ mod range_file;
 mod sentry_config;
 #[cfg(desktop)]
 mod spawn_fresh_browser;
+mod media_server;
 mod transfer_file;
 #[cfg(desktop)]
 mod window_state;
@@ -405,6 +406,7 @@ pub fn run() {
             start_server,
             download_file,
             upload_file,
+            media_server::serve_media_file,
             get_environment_variable,
             get_executable_dir,
             set_webview_info,

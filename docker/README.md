@@ -225,6 +225,24 @@ non-local server.
 The `API_BASE_URL`, `SUPABASE_URL` and `SUPABASE_ANON_KEY` repository variables of the
 iOS/Android workflows are now optional: they only set the server a build starts with.
 
+## Old devices, e-ink and big uploads (this fork)
+
+- **Lite mode** (☰ → *Lite mode*: Auto / On / Off): switches off blur, shadows, filters,
+  transitions and decorative animation. *Auto* turns it on for iOS 15 and older and for devices
+  with 2 cores or 2 GB, such as an iPad Air 2. The audiobook player also stops animating its
+  wave and draws its blurred cover from a 24-pixel copy instead of a CSS blur.
+- **E-ink mode** (☰ → *E-ink mode*): the existing e-ink theme, now also covering the profile
+  screens and the audiobook player. Profile pictures turn into black-and-white drawings with an
+  outline and four gray levels.
+- **Audiobooks on iOS** stream from a small server inside the app on `127.0.0.1` (the web view
+  cannot play from Tauri's asset protocol), so a 500 MB file starts at once instead of being read
+  into memory. It falls back to the asset protocol, and to loading the file into memory only
+  for files under 120 MB.
+- **Uploads over 80 MB** go up in 50 MB parts (S3 multipart), because a proxy such as
+  Cloudflare caps one request at 100 MB. Needs the S3/MinIO storage; R2 keeps single uploads.
+- Every request to your server now carries the Cloudflare Access token (if configured) and the
+  active profile; before this, library sync did neither.
+
 ## Audiobooks (this fork)
 
 Audio files import like books: m4b, m4a, mp3, aac, ogg, opus, flac and wav, one

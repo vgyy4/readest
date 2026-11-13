@@ -1,6 +1,7 @@
 import clsx from 'clsx';
 import React, { useState } from 'react';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useIsEink } from '@/hooks/useHtmlAttribute';
 import { AVATARS, avatarSrc } from '@/libs/profiles/avatars';
 import ProfileAvatar from './ProfileAvatar';
 
@@ -17,6 +18,7 @@ interface AvatarPickerProps {
 /** A grid of stock pictures; tap one, then Continue. */
 const AvatarPicker: React.FC<AvatarPickerProps> = ({ name, current, onPick, onSkip, title }) => {
   const _ = useTranslation();
+  const eink = useIsEink();
   const [selected, setSelected] = useState<string | null>(current ?? null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -53,16 +55,17 @@ const AvatarPicker: React.FC<AvatarPickerProps> = ({ name, current, onPick, onSk
                   aria-label={avatar.id}
                   aria-pressed={active}
                   className={clsx(
-                    'block aspect-square w-full overflow-hidden outline-none transition-transform',
+                    'profile-avatar-option block aspect-square w-full overflow-hidden rounded-full outline-none',
                     'focus-visible:ring-primary focus-visible:ring-2',
-                    active ? 'ring-primary scale-95 ring-4' : 'active:scale-95',
+                    active
+                      ? 'outline-primary scale-95 outline outline-4 outline-offset-2'
+                      : 'active:scale-95',
                   )}
-                  style={{ borderRadius: '26%' }}
                   onClick={() => setSelected(avatar.id)}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={avatarSrc(avatar.id) ?? ''}
+                    src={avatarSrc(avatar.id, { eink }) ?? ''}
                     alt=''
                     loading='lazy'
                     draggable={false}

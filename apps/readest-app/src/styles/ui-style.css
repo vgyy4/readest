@@ -376,3 +376,68 @@ html[data-ui-style]:not([data-ui-style='classic']):not([data-eink='true'])[data-
     transform: none;
   }
 }
+
+/* ---- E-ink: pictures and the profile screens (E-ink mode has its own switch in the menu) ---- */
+[data-eink='true'] .profile-avatar,
+[data-eink='true'] .profile-avatar-option {
+  border: 2px solid #000;
+  box-shadow: none;
+}
+[data-eink='true'] .profile-avatar-option[aria-pressed='true'] {
+  outline: 5px solid #000;
+  outline-offset: 2px;
+  transform: none;
+}
+[data-eink='true'] .profile-picker,
+[data-eink='true'] .avatar-picker {
+  background: #fff;
+  color: #000;
+}
+[data-eink='true'] .profile-picker button,
+[data-eink='true'] .avatar-picker button {
+  transition: none;
+}
+
+/* ---- Lite mode (data-perf='low'): for old iPads and phones. No blur, shadows, filters,
+   transitions or decorative animation anywhere: their GPUs spend whole seconds on them. ---- */
+html[data-perf='low'] *,
+html[data-perf='low'] *::before,
+html[data-perf='low'] *::after {
+  transition: none !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  filter: none !important;
+  scroll-behavior: auto !important;
+}
+html[data-perf='low'] *:not(.loading):not([class*='animate-spin']):not([class*='loading-']),
+html[data-perf='low'] *:not(.loading):not([class*='animate-spin'])::before,
+html[data-perf='low'] *:not(.loading):not([class*='animate-spin'])::after {
+  animation: none !important;
+}
+html[data-perf='low'] .profile-avatar-option[aria-pressed='true'] {
+  outline: 4px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* ---- The audiobook player on e-ink: flat, bordered, no motion or tints ---- */
+[data-eink='true'] .audiobook-player {
+  background: #fff !important;
+  color: #000 !important;
+}
+[data-eink='true'] .audiobook-player [data-surface] {
+  border: 2px solid #000;
+  box-shadow: none;
+  background: #fff;
+}
+[data-eink='true'] .audiobook-player img {
+  filter: grayscale(1) contrast(1.4);
+}
+[data-eink='true'] .audiobook-player button,
+[data-eink='true'] .audiobook-player [role='slider'] {
+  transition: none;
+}
+html[data-perf='low'] .library-page {
+  background-image: none !important;
+}

@@ -10,6 +10,9 @@ vi.mock('@/hooks/useTranslation', () => ({
   },
 }));
 
+const tauriInvoke = vi.hoisted(() => vi.fn());
+vi.mock('@tauri-apps/api/core', () => ({ invoke: tauriInvoke }));
+
 const mocks = vi.hoisted(() => ({
   appService: {
     appPlatform: 'web',
@@ -303,5 +306,47 @@ describe('AudiobookPlayer', () => {
     render(<AudiobookPlayer book={book} onBack={onBack} />);
     fireEvent.click(screen.getByLabelText('Back'));
     expect(onBack).toHaveBeenCalled();
+  });
+
+  describe('on iOS (Tauri)', () => {
+    beforeEach(() => {
+      mocks.appService.appPlatform = 'tauri';
+      (mocks.appService as Record<string, unknown>)['isIOSApp'] = true;
+      mocks.appService.resolveFilePath.mockResolvedValue('/var/Readest/Books/abc/Dune.m4b');
+      mocks.appService.getImageURL.mockResolvedValue('asset://localhost/Dune.m4b');
+      mocks.appService.openFile.mockClear();
+      tauriInvoke.mockReset();
+      tauriInvoke.mockResolvedValue('http://127.0.0.1:5555/tok/audio');
+    });
+    afterEach(() => {
+      mocks.appService.appPlatform = 'web';
+      (mocks.appService as Record<string, unknown>)['isIOSApp'] = false;
+    });
+
+    it('streams from the local address, never loading the whole file into memory', async () => {
+      render(<AudiobookPlayer book={book} onBack={() => {}} />);
+      await waitFor(() =>
+        expect(audio().getAttribute('src')).toBe('http://127.0.0.1:5555/tok/audio'),
+      );
+      expect(tauriInvoke).toHaveBeenCalledWith('serve_media_file', {
+        filePath: '/var/Readest/Books/abc/Dune.m4b',
+        mimeType: 'audio/mp4',
+      });
+      // The file was opened once, to read its chapters, and not again to build a blob.
+      expect(mocks.appService.openFile).toHaveBeenCalledTimes(1);
+      expect(URL.createObjectURL).not.toHaveBeenCalledWith(expect.any(Blob));
+    });
+
+    it('moves on to the next way when one does not play, then reports the failure', async () => {
+      render(<AudiobookPlayer book={book} onBack={() => {}} />);
+      await waitFor(() => expect(audio().getAttribute('src')).toContain('127.0.0.1'));
+      fireEvent.error(audio());
+      await waitFor(() => expect(audio().getAttribute('src')).toBe('asset://localhost/Dune.m4b'));
+      fireEvent.error(audio());
+      // Small enough to try as a blob, the last resort.
+      await waitFor(() => expect(audio().getAttribute('src')).toBe('blob:audio'));
+      fireEvent.error(audio());
+      expect(await screen.findByRole('alert')).toBeTruthy();
+    });
   });
 });

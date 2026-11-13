@@ -32,3 +32,30 @@ describe('stock avatars', () => {
     }
   });
 });
+
+describe('e-ink pictures', () => {
+  it('use only black, white and two grays, on a white tile', async () => {
+    const { einkSvg } = await import('@/libs/profiles/avatars');
+    const allowed = new Set(['#000000', '#555555', '#aaaaaa', '#ffffff', '#000', '#fff']);
+    for (const { id, svg } of AVATARS) {
+      const eink = einkSvg(svg);
+      expect(
+        new DOMParser().parseFromString(eink, 'image/svg+xml').querySelector('parsererror'),
+      ).toBeNull();
+      for (const hex of eink.match(/#[0-9a-f]{3,6}\b/gi) ?? []) {
+        expect(allowed.has(hex.toLowerCase()), `${id} ${hex}`).toBe(true);
+      }
+      expect(eink).toContain('<rect width="100" height="100" fill="#fff"/>');
+    }
+  });
+
+  it('outline the shapes, so light colors keep their silhouette', async () => {
+    const { einkSvg } = await import('@/libs/profiles/avatars');
+    expect(einkSvg(AVATARS[0]!.svg)).toContain('stroke="#000"');
+  });
+
+  it('are what avatarSrc returns for an e-ink screen', () => {
+    expect(avatarSrc('av-01', { eink: true })).not.toBe(avatarSrc('av-01'));
+    expect(decodeURIComponent(avatarSrc('av-01', { eink: true })!)).toContain('stroke="#000"');
+  });
+});

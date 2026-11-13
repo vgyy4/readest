@@ -22,6 +22,7 @@ import {
   verifyProfilePin,
 } from '@/libs/profiles/client';
 import { isValidPin } from '@/libs/profiles/shared';
+import { ensureBooksOnServer } from '@/libs/profiles/pushBooks';
 import AvatarPicker from '@/components/profiles/AvatarPicker';
 import ProfileAvatar from '@/components/profiles/ProfileAvatar';
 
@@ -146,8 +147,20 @@ const ProfilesDialog: React.FC<ProfilesDialogProps> = ({ books, onClose }) => {
       setView('books');
     });
 
+  // The server shares its own copy of a book's entry, so it has to have it first.
+  const sendBooksFirst = async (hashes: string[]) => {
+    try {
+      await ensureBooksOnServer(hashes);
+    } catch {
+      throw new Error(
+        _('Could not send your books to the server. Check the connection and try again.'),
+      );
+    }
+  };
+
   const saveBooks = () =>
     run(async () => {
+      await sendBooksFirst([...granted]);
       await setProfileBooks(target!.id!, [...granted], masterPin);
       backToList();
     });
@@ -544,6 +557,9 @@ const ProfilesDialog: React.FC<ProfilesDialogProps> = ({ books, onClose }) => {
                       }}
                     />
                     <span className='text-sm'>{book.title}</span>
+                    {!book.uploadedAt && (
+                      <span className='text-warning ms-auto text-xs'>{_('Not uploaded yet')}</span>
+                    )}
                   </label>
                 </li>
               ))}

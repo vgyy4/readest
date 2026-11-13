@@ -51,3 +51,25 @@ export const accessFetch: typeof fetch = (input, init) => {
   for (const [name, value] of Object.entries(extra)) headers.set(name, value);
   return fetch(input, { ...init, headers });
 };
+
+let installed = false;
+
+/**
+ * Make every `fetch` from the page add the service token for our own server, so no request
+ * (sync, settings, sharing ...) is turned away by Cloudflare Access because its code forgot
+ * to. Requests to other hosts are untouched. Safe to call more than once.
+ */
+export const installAccessFetch = () => {
+  if (installed || typeof window === 'undefined') return;
+  installed = true;
+  const original = window.fetch.bind(window);
+  window.fetch = (input, init) => {
+    const extra = getAccessHeaders(urlOf(input));
+    if (Object.keys(extra).length === 0) return original(input, init);
+    const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : {}));
+    for (const [name, value] of Object.entries(extra)) {
+      if (!headers.has(name)) headers.set(name, value);
+    }
+    return original(input, { ...init, headers });
+  };
+};

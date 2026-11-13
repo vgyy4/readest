@@ -128,3 +128,42 @@ export const buildGlassPalette = ({ hue, saturation }: CoverColor, dark: boolean
     '--ab-on-pill': hsl(hue, 0.6, 0.14),
   };
 };
+
+/** Black on white for e-ink: no tints, no gradients, borders do the separating. */
+export const buildEinkPalette = () => ({
+  '--ab-bg-top': '#ffffff',
+  '--ab-bg-bottom': '#ffffff',
+  '--ab-text': '#000000',
+  '--ab-text-muted': '#000000',
+  '--ab-primary': '#000000',
+  '--ab-on-primary': '#ffffff',
+  '--ab-container': '#ffffff',
+  '--ab-container-high': '#ffffff',
+  '--ab-track': '#bdbdbd',
+  '--ab-toolbar': '#ffffff',
+  '--ab-on-toolbar': '#000000',
+  '--ab-pill': '#000000',
+  '--ab-on-pill': '#ffffff',
+});
+
+/**
+ * A tiny, heavily downscaled copy of the cover as a data URL. Stretched over the screen it
+ * looks like a blurred cover, for the price of drawing a 24-pixel image: a CSS `blur(60px)`
+ * on a full-screen picture takes an old iPad whole seconds per frame.
+ */
+export const blurredCoverUrl = async (url: string): Promise<string | null> => {
+  try {
+    const image = new Image();
+    image.src = url;
+    await image.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = 24;
+    canvas.height = 24;
+    const context = canvas.getContext('2d');
+    if (!context) return null;
+    context.drawImage(image, 0, 0, 24, 24);
+    return canvas.toDataURL('image/jpeg', 0.7);
+  } catch {
+    return null;
+  }
+};

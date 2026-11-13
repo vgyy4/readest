@@ -18,7 +18,8 @@ import { Book } from '@/types/book';
 import { useThemeStore } from '@/store/themeStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAudiobook } from '@/hooks/useAudiobook';
-import { buildGlassPalette, buildPalette } from '@/libs/audiobook/palette';
+import { buildEinkPalette, buildGlassPalette, buildPalette } from '@/libs/audiobook/palette';
+import { useHtmlAttribute, useIsEink } from '@/hooks/useHtmlAttribute';
 import { useUiStyle } from '@/hooks/useUiStyle';
 import {
   bookPercent,
@@ -86,11 +87,16 @@ const AudiobookPlayer: React.FC<AudiobookPlayerProps> = ({ book, onBack }) => {
   const chapter = player.chapter;
   // The player follows the app-wide style; the classic look has no player of its own, so it gets Material.
   const [uiStyle, setUiStyle] = useUiStyle();
-  const glass = uiStyle === 'glass';
+  const eink = useIsEink();
+  const lite = useHtmlAttribute('data-perf') === 'low';
+  // E-ink has no gradients, tints or glass: black on white with borders.
+  const glass = uiStyle === 'glass' && !eink;
+  const animate = !eink && !lite;
   const palette = useMemo(() => {
+    if (eink) return buildEinkPalette();
     const color = player.color ?? { hue: 215, saturation: 0.7 };
     return glass ? buildGlassPalette(color, isDarkMode) : buildPalette(color, isDarkMode);
-  }, [player.color, isDarkMode, glass]);
+  }, [player.color, isDarkMode, glass, eink]);
   const active = glass
     ? { background: 'var(--ab-primary)', color: 'var(--ab-on-primary)' }
     : { background: 'var(--ab-on-toolbar)', color: 'var(--ab-toolbar)' };
@@ -129,14 +135,14 @@ const AudiobookPlayer: React.FC<AudiobookPlayerProps> = ({ book, onBack }) => {
       {glass && (
         <>
           <style>{GLASS_CSS}</style>
-          {player.coverUrl && (
+          {player.coverBlur && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={player.coverUrl}
+              src={player.coverBlur}
               alt=''
               aria-hidden
-              className='pointer-events-none fixed inset-0 z-0 h-full w-full scale-125 object-cover opacity-60'
-              style={{ filter: 'blur(60px) saturate(1.4)' }}
+              className='pointer-events-none fixed inset-0 z-0 h-full w-full object-cover opacity-70'
+              style={{ imageRendering: 'auto' }}
             />
           )}
         </>
@@ -296,6 +302,7 @@ const AudiobookPlayer: React.FC<AudiobookPlayerProps> = ({ book, onBack }) => {
         <div>
           <WavySlider
             glass={glass}
+            animate={animate}
             ariaLabel={_('Seek')}
             value={multiChapter ? inChapter : position}
             max={multiChapter ? chapterLength : duration}
@@ -351,6 +358,7 @@ const AudiobookPlayer: React.FC<AudiobookPlayerProps> = ({ book, onBack }) => {
           </button>
           <PlayButton
             glass={glass}
+            flat={!animate}
             playing={player.playing}
             label={player.playing ? _('Pause') : _('Play')}
             onClick={player.toggle}

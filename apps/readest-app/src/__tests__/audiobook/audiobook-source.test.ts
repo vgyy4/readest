@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { audioMimeType, blobFromFile, describeMediaError } from '@/libs/audiobook/source';
+import {
+  audioMimeType,
+  blobFromFile,
+  describeMediaError,
+  MAX_BLOB_BYTES,
+  playbackPlan,
+} from '@/libs/audiobook/source';
 
 describe('audioMimeType', () => {
   it('gives WebKit a type it knows, including for .m4b', () => {
@@ -29,5 +35,33 @@ describe('describeMediaError', () => {
     expect(describeMediaError(3)).toContain('decod');
     expect(describeMediaError(2)).toContain('network');
     expect(describeMediaError(undefined)).toContain('could not be played');
+  });
+});
+
+describe('playbackPlan', () => {
+  it('streams from a local address on iOS first, then the asset protocol', () => {
+    expect(playbackPlan({ tauri: true, ios: true, size: 500 * 1024 * 1024 })).toEqual([
+      'loopback',
+      'asset',
+    ]);
+  });
+
+  it('uses the asset protocol first elsewhere in the app', () => {
+    expect(playbackPlan({ tauri: true, ios: false, size: 10 })).toEqual([
+      'asset',
+      'loopback',
+      'blob',
+    ]);
+  });
+
+  it('only falls back to loading the whole file into memory when it is small', () => {
+    expect(playbackPlan({ tauri: true, ios: true, size: MAX_BLOB_BYTES })).toContain('blob');
+    expect(playbackPlan({ tauri: true, ios: true, size: MAX_BLOB_BYTES + 1 })).not.toContain(
+      'blob',
+    );
+  });
+
+  it('is just a blob in a browser', () => {
+    expect(playbackPlan({ tauri: false, ios: false, size: 10 ** 9 })).toEqual(['blob']);
   });
 });

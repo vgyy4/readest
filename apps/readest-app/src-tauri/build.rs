@@ -29,6 +29,7 @@ fn main() {
             "start_server",
             "download_file",
             "upload_file",
+            "serve_media_file",
             "get_environment_variable",
             "get_executable_dir",
             "set_webview_info",

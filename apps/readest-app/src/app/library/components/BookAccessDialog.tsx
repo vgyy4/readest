@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { Book } from '@/types/book';
+import { useLibraryStore } from '@/store/libraryStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import Dialog from '@/components/Dialog';
 import { getSessionPin, setSessionPin } from '@/libs/profiles/session';
+import { ensureBooksOnServer } from '@/libs/profiles/pushBooks';
 import {
   fetchBookAccess,
   fetchProfiles,
@@ -24,6 +26,8 @@ type View = 'loading' | 'unlock' | 'access';
  * every profile keeps its own.
  */
 const BookAccessDialog: React.FC<BookAccessDialogProps> = ({ book, onClose }) => {
+  const stored = useLibraryStore.getState().library.find((b) => b.hash === book.hash);
+  const notUploaded = !!stored && !stored.uploadedAt;
   const _ = useTranslation();
   const [view, setView] = useState<View>('loading');
   const [state, setState] = useState<ProfilesState>({ hasPin: false, profiles: [] });
@@ -74,6 +78,13 @@ const BookAccessDialog: React.FC<BookAccessDialogProps> = ({ book, onClose }) =>
 
   const save = () =>
     run(async () => {
+      try {
+        await ensureBooksOnServer([book.hash]);
+      } catch {
+        throw new Error(
+          _('Could not send this book to the server. Check the connection and try again.'),
+        );
+      }
       await setBookAccess(book.hash, [...selected], getSessionPin());
       onClose();
     });
@@ -122,6 +133,11 @@ const BookAccessDialog: React.FC<BookAccessDialogProps> = ({ book, onClose }) =>
         {view === 'access' && (
           <>
             <p className='text-sm'>{_('Profiles that can see this book')}</p>
+            {notUploaded && (
+              <p className='text-warning text-xs'>
+                {_('This book is not uploaded yet, so profiles cannot open it until it is.')}
+              </p>
+            )}
             {state.profiles.length === 0 ? (
               <p className='text-base-content/60 text-sm'>
                 {_('There are no profiles yet. Add one from Settings → Profiles.')}

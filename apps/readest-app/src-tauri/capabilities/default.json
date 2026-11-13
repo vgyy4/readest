@@ -214,6 +214,7 @@
     "allow-start-server",
     "allow-download-file",
     "allow-upload-file",
+    "allow-serve-media-file",
     "allow-get-environment-variable",
     "allow-get-executable-dir",
     "allow-set-webview-info",

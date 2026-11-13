@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react';
 import {
+  getPerfMode,
+  PERF_CHANGE_EVENT,
+  setPerfMode,
+  type PerfMode,
   DEFAULT_UI_STYLE,
   getUiStyle,
   setUiStyle,
@@ -16,4 +20,16 @@ export const useUiStyle = () => {
     return () => window.removeEventListener(UI_STYLE_CHANGE_EVENT, onChange);
   }, []);
   return [style, setUiStyle] as const;
+};
+
+/** Lite mode (auto / on / off) and a way to change it. */
+export const usePerfMode = () => {
+  const [mode, setMode] = useState<PerfMode>('auto');
+  useEffect(() => {
+    setMode(getPerfMode());
+    const onChange = (e: Event) => setMode((e as CustomEvent<PerfMode>).detail);
+    window.addEventListener(PERF_CHANGE_EVENT, onChange);
+    return () => window.removeEventListener(PERF_CHANGE_EVENT, onChange);
+  }, []);
+  return [mode, setPerfMode] as const;
 };

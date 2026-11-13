@@ -46,8 +46,24 @@ export const fetchProfileBooks = async (profileId: string, pin?: string): Promis
   return ((await response.json()) as { bookHashes: string[] }).bookHashes;
 };
 
+/** The server answers "Book not found" for a book it has not received yet. */
+const withBookHint = async <T>(request: Promise<T>): Promise<T> => {
+  try {
+    return await request;
+  } catch (e) {
+    if (e instanceof Error && e.message === 'Book not found') {
+      throw new Error(
+        'This book has not reached the server yet. Wait for sync to finish, then try again.',
+      );
+    }
+    throw e;
+  }
+};
+
 export const setProfileBooks = async (profileId: string, bookHashes: string[], pin?: string) => {
-  await fetchWithAuth(endpoint('/books'), json('PUT', { profileId, bookHashes }, pin));
+  await withBookHint(
+    fetchWithAuth(endpoint('/books'), json('PUT', { profileId, bookHashes }, pin)),
+  );
 };
 
 /** The admin's per-book view: which profiles can see `bookHash`. */
@@ -60,7 +76,9 @@ export const fetchBookAccess = async (bookHash: string, pin?: string): Promise<s
 };
 
 export const setBookAccess = async (bookHash: string, profileIds: string[], pin?: string) => {
-  await fetchWithAuth(endpoint('/book-access'), json('PUT', { bookHash, profileIds }, pin));
+  await withBookHint(
+    fetchWithAuth(endpoint('/book-access'), json('PUT', { bookHash, profileIds }, pin)),
+  );
 };
 
 /** 4-digit PINs. No `profileId` is the master PIN of the main profile. */

@@ -5,6 +5,11 @@ import {
   PutObjectCommand,
   HeadObjectCommand,
   CopyObjectCommand,
+  CreateMultipartUploadCommand,
+  UploadPartCommand,
+  ListPartsCommand,
+  CompleteMultipartUploadCommand,
+  AbortMultipartUploadCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
@@ -80,6 +85,82 @@ export const s3Storage = {
     });
 
     return uploadUrl;
+  },
+
+  createMultipartUpload: async (bucketName: string, fileKey: string) => {
+    const created = await s3Storage
+      .getClient()
+      .send(new CreateMultipartUploadCommand({ Bucket: bucketName, Key: fileKey }));
+    if (!created.UploadId) throw new Error('The storage did not start a multipart upload');
+    return created.UploadId;
+  },
+
+  getUploadPartSignedUrl: async (
+    bucketName: string,
+    fileKey: string,
+    uploadId: string,
+    partNumber: number,
+    contentLength: number,
+    expiresIn: number,
+  ) => {
+    const signableHeaders = new Set<string>();
+    signableHeaders.add('content-length');
+    const command = new UploadPartCommand({
+      Bucket: bucketName,
+      Key: fileKey,
+      UploadId: uploadId,
+      PartNumber: partNumber,
+      ContentLength: contentLength,
+    });
+    return await getSignedUrl(s3SigningClient, command, { expiresIn, signableHeaders });
+  },
+
+  /** The parts uploaded so far, with their ETags, in order. */
+  listParts: async (bucketName: string, fileKey: string, uploadId: string) => {
+    const parts: { PartNumber: number; ETag: string; Size: number }[] = [];
+    let marker: string | undefined;
+    for (;;) {
+      const page = await s3Storage.getClient().send(
+        new ListPartsCommand({
+          Bucket: bucketName,
+          Key: fileKey,
+          UploadId: uploadId,
+          PartNumberMarker: marker,
+        }),
+      );
+      for (const part of page.Parts ?? []) {
+        if (part.PartNumber && part.ETag) {
+          parts.push({ PartNumber: part.PartNumber, ETag: part.ETag, Size: part.Size ?? 0 });
+        }
+      }
+      if (!page.IsTruncated || !page.NextPartNumberMarker) break;
+      marker = page.NextPartNumberMarker;
+    }
+    return parts.sort((a, b) => a.PartNumber - b.PartNumber);
+  },
+
+  completeMultipartUpload: async (
+    bucketName: string,
+    fileKey: string,
+    uploadId: string,
+    parts: { PartNumber: number; ETag: string }[],
+  ) => {
+    return await s3Storage.getClient().send(
+      new CompleteMultipartUploadCommand({
+        Bucket: bucketName,
+        Key: fileKey,
+        UploadId: uploadId,
+        MultipartUpload: { Parts: parts.map(({ PartNumber, ETag }) => ({ PartNumber, ETag })) },
+      }),
+    );
+  },
+
+  abortMultipartUpload: async (bucketName: string, fileKey: string, uploadId: string) => {
+    return await s3Storage
+      .getClient()
+      .send(
+        new AbortMultipartUploadCommand({ Bucket: bucketName, Key: fileKey, UploadId: uploadId }),
+      );
   },
 
   putObject: async (

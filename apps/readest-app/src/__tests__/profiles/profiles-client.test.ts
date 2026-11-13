@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Book } from '@/types/book';
 import type { SystemSettings } from '@/types/settings';
 import { getActiveProfileId, isProfileActive, setActiveProfileId } from '@/libs/profiles/active';
@@ -62,7 +62,6 @@ describe('sync cursors', () => {
 
 describe('profile requests and sync scope', () => {
   it('sends the profile header with authenticated requests only while a profile is active', async () => {
-    const { vi } = await import('vitest');
     vi.doMock('@/utils/access', () => ({ getAccessToken: async () => 'tok' }));
     const calls: RequestInit[] = [];
     const realFetch = globalThis.fetch;
@@ -94,5 +93,38 @@ describe('profile requests and sync scope', () => {
     expect(isSyncCategoryEnabled('dictionary')).toBe(false);
     expect(isSyncCategoryEnabled('font')).toBe(false);
     expect(isSyncCategoryEnabled('stats')).not.toBe(false);
+  });
+});
+
+describe('library sync requests', () => {
+  it('carry the profile the device is acting as, so progress stays separate', async () => {
+    const calls: { url: string; headers: Record<string, string> }[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), headers: (init?.headers ?? {}) as Record<string, string> });
+      return new Response(JSON.stringify({ books: [], configs: [], notes: [] }), { status: 200 });
+    }) as typeof fetch;
+    vi.resetModules();
+    vi.doMock('@/utils/access', () => ({ getAccessToken: async () => 'tok' }));
+    try {
+      const { SyncClient } = await import('@/libs/sync');
+      const client = new SyncClient();
+      await client.pullChanges(0, 'books');
+      await client.pushChanges({ books: [] });
+      setActiveProfileId(KID);
+      await client.pullChanges(0, 'configs');
+      await client.pushChanges({ configs: [] });
+      const [pullMaster, pushMaster, pullKid, pushKid] = calls.map((c) => c.headers);
+      for (const h of [pullMaster!, pushMaster!]) {
+        expect(h['x-readest-profile']).toBeUndefined();
+        expect(h['Authorization']).toBe('Bearer tok');
+      }
+      for (const h of [pullKid!, pushKid!]) expect(h['x-readest-profile']).toBe(KID);
+    } finally {
+      globalThis.fetch = realFetch;
+      vi.doUnmock('@/utils/access');
+      vi.resetModules();
+      setActiveProfileId(null);
+    }
   });
 });

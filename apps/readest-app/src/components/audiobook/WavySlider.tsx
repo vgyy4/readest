@@ -10,6 +10,8 @@ interface WavySliderProps {
   step?: number;
   /** Glass draws a straight track with a round, glassy thumb instead of the wave. */
   glass?: boolean;
+  /** Let the wave move while playing. Off on e-ink and in lite mode, where it only costs time. */
+  animate?: boolean;
   onCommit: (value: number) => void;
 }
 
@@ -18,6 +20,17 @@ const STROKE = 4;
 const WAVELENGTH = 26;
 const AMPLITUDE = 3;
 const THUMB_GAP = 8;
+
+/** The played part of the track: a wave of `amplitude` (0 is a straight line) up to `end`. */
+const wavePath = (end: number, amplitude: number, phase: number) => {
+  const mid = HEIGHT / 2;
+  if (amplitude === 0) return `M ${STROKE / 2} ${mid} L ${Math.max(STROKE / 2, end)} ${mid}`;
+  let d = `M ${STROKE / 2} ${mid}`;
+  for (let x = STROKE / 2; x <= end; x += 3) {
+    d += ` L ${x} ${(mid + amplitude * Math.sin((x / WAVELENGTH) * Math.PI * 2 + phase)).toFixed(1)}`;
+  }
+  return d;
+};
 
 /**
  * Voice's seek bar: a thin track with a vertical thumb, whose played part is a
@@ -31,12 +44,15 @@ const WavySlider: React.FC<WavySliderProps> = ({
   ariaLabel,
   step = 5,
   glass = false,
+  animate = true,
   onCommit,
 }) => {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [drag, setDrag] = useState<number | null>(null);
-  const [phase, setPhase] = useState(0);
+  const pathRef = useRef<SVGPathElement>(null);
+  const waveEndRef = useRef(0);
+  const phaseRef = useRef(0);
   const safeMax = Math.max(max, 1);
   const shown = drag ?? value;
   const thumbX = Math.min(width, Math.max(0, (shown / safeMax) * width));
@@ -52,18 +68,26 @@ const WavySlider: React.FC<WavySliderProps> = ({
     return () => observer.disconnect();
   }, []);
 
+  // The wave moves by rewriting the path's `d` directly, about 20 times a second, instead of
+  // re-rendering the component every frame: that was most of the player's CPU use.
   useEffect(() => {
-    if (!playing) return;
+    if (!playing || !animate || glass) return;
     let frame = 0;
     let last = performance.now();
     const tick = (time: number) => {
-      setPhase((p) => (p + ((time - last) / 1000) * 5) % (Math.PI * 2));
-      last = time;
+      if (time - last >= 50) {
+        phaseRef.current = (phaseRef.current + ((time - last) / 1000) * 5) % (Math.PI * 2);
+        last = time;
+        pathRef.current?.setAttribute(
+          'd',
+          wavePath(waveEndRef.current, AMPLITUDE, phaseRef.current),
+        );
+      }
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [playing]);
+  }, [playing, animate, glass]);
 
   const valueAt = (clientX: number) => {
     const rect = ref.current!.getBoundingClientRect();
@@ -71,13 +95,11 @@ const WavySlider: React.FC<WavySliderProps> = ({
     return Math.min(safeMax, Math.max(0, ratio * safeMax));
   };
 
-  const mid = HEIGHT / 2;
   const waveEnd = Math.max(0, thumbX - THUMB_GAP);
-  const amplitude = playing && !glass ? AMPLITUDE : 0;
-  let wave = `M ${STROKE / 2} ${mid}`;
-  for (let x = STROKE / 2; x <= waveEnd; x += 2) {
-    wave += ` L ${x} ${mid + amplitude * Math.sin((x / WAVELENGTH) * Math.PI * 2 + phase)}`;
-  }
+  waveEndRef.current = waveEnd;
+  const amplitude = playing && !glass && animate ? AMPLITUDE : 0;
+  const wave = wavePath(waveEnd, amplitude, phaseRef.current);
+  const mid = HEIGHT / 2;
 
   return (
     <div
@@ -114,6 +136,7 @@ const WavySlider: React.FC<WavySliderProps> = ({
     >
       <svg width={width} height={HEIGHT} className='absolute inset-0 overflow-visible' aria-hidden>
         <path
+          ref={pathRef}
           d={glass ? `M ${STROKE / 2} ${mid} L ${thumbX} ${mid}` : wave}
           fill='none'
           stroke='var(--ab-primary)'
