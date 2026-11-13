@@ -123,6 +123,7 @@ beforeEach(() => {
   mocks.appService.saveBookConfig.mockResolvedValue(undefined);
   mocks.updateBook.mockResolvedValue(undefined);
   URL.createObjectURL = vi.fn(() => 'blob:audio');
+  localStorage.clear();
   Object.values(mocks.session).forEach((fn) => fn.mockReset());
 });
 afterEach(() => {
@@ -138,9 +139,9 @@ describe('AudiobookPlayer', () => {
     expect(await screen.findByText('Part One')).toBeTruthy();
     for (const label of [
       'Previous chapter',
-      'Back 10 seconds',
+      'Back 20 seconds',
       'Play',
-      'Forward 30 seconds',
+      'Forward 20 seconds',
       'Next chapter',
       'Playback speed',
       'Sleep timer',
@@ -160,14 +161,72 @@ describe('AudiobookPlayer', () => {
     expect(HTMLMediaElement.prototype.pause).toHaveBeenCalled();
   });
 
-  it('skips back 10 seconds and forward 30', async () => {
+  it('skips back and forward by the skip amount, which can be changed', async () => {
     render(<AudiobookPlayer book={book} onBack={() => {}} />);
     await loaded();
     audio().currentTime = 50;
-    fireEvent.click(screen.getByLabelText('Forward 30 seconds'));
-    expect(audio().currentTime).toBe(80);
-    fireEvent.click(screen.getByLabelText('Back 10 seconds'));
+    fireEvent.click(screen.getByLabelText('Forward 20 seconds'));
     expect(audio().currentTime).toBe(70);
+    fireEvent.click(screen.getByLabelText('Back 20 seconds'));
+    expect(audio().currentTime).toBe(50);
+    // The small skip buttons never offer "Back to".
+    expect(screen.queryByText(/^Back to/)).toBeNull();
+
+    fireEvent.click(screen.getByLabelText('More'));
+    fireEvent.click(screen.getByLabelText('Longer skip'));
+    fireEvent.click(screen.getByLabelText('Longer skip'));
+    fireEvent.click(screen.getByLabelText('Back'));
+    expect(screen.getByLabelText('Forward 30 seconds')).toBeTruthy();
+  });
+
+  it('offers a way back after a chapter change, for ten seconds', async () => {
+    render(<AudiobookPlayer book={book} onBack={() => {}} />);
+    await loaded();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    audio().currentTime = 40;
+    fireEvent.timeUpdate(audio());
+    fireEvent.click(screen.getByLabelText('Next chapter'));
+    expect(audio().currentTime).toBe(100);
+    fireEvent.click(await screen.findByText(/^Back to/));
+    expect(audio().currentTime).toBe(40);
+
+    fireEvent.click(screen.getByLabelText('Next chapter'));
+    expect(screen.getByText(/^Back to/)).toBeTruthy();
+    await act(async () => {
+      vi.advanceTimersByTime(11_000);
+    });
+    expect(screen.queryByText(/^Back to/)).toBeNull();
+  });
+
+  it('saves moments as bookmarks and jumps back to them', async () => {
+    render(<AudiobookPlayer book={book} onBack={() => {}} />);
+    await loaded();
+    audio().currentTime = 75;
+    fireEvent.timeUpdate(audio());
+    fireEvent.click(screen.getByLabelText('Bookmarks'));
+    fireEvent.click(await screen.findByText('Save this moment'));
+    await waitFor(() => expect(mocks.appService.saveBookConfig).toHaveBeenCalled());
+    const saved = mocks.appService.saveBookConfig.mock.calls.find(([, c]) => c.booknotes)!;
+    expect(saved[1].booknotes[0]).toMatchObject({ type: 'bookmark', cfi: 'audio:75' });
+
+    audio().currentTime = 5;
+    fireEvent.timeUpdate(audio());
+    fireEvent.click(await screen.findByText('1:15'));
+    expect(audio().currentTime).toBe(75);
+  });
+
+  it('switches between the Material and the liquid glass style, and remembers it', async () => {
+    const { unmount } = render(<AudiobookPlayer book={book} onBack={() => {}} />);
+    await loaded();
+    const root = () => document.querySelector('.audiobook-player')!;
+    expect(root().classList.contains('ab-glass')).toBe(false);
+    fireEvent.click(screen.getByLabelText('More'));
+    fireEvent.click(screen.getByText('Liquid glass'));
+    expect(root().classList.contains('ab-glass')).toBe(true);
+    unmount();
+
+    render(<AudiobookPlayer book={book} onBack={() => {}} />);
+    expect(root().classList.contains('ab-glass')).toBe(true);
   });
 
   it('jumps to a chapter from the list, and between chapters', async () => {
@@ -183,12 +242,14 @@ describe('AudiobookPlayer', () => {
     expect(audio().currentTime).toBe(100);
   });
 
-  it('cycles the playback speed', async () => {
+  it('sets the playback speed from the speed sheet', async () => {
     render(<AudiobookPlayer book={book} onBack={() => {}} />);
     await loaded();
     fireEvent.click(screen.getByLabelText('Playback speed'));
+    fireEvent.click(await screen.findByText('1.25×', { selector: 'button' }));
     expect(audio().playbackRate).toBe(1.25);
-    expect(screen.getByText('1.25×')).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('Faster'));
+    expect(audio().playbackRate).toBeCloseTo(1.3);
   });
 
   it('counts down a sleep timer and pauses at zero', async () => {

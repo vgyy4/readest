@@ -27,7 +27,13 @@ const actions = () => ({
   seekBy: vi.fn(),
   seekTo: vi.fn(),
 });
-const info = { bookHash: 'abc', title: 'Dune', author: 'Frank Herbert', artwork: 'cover.png' };
+const info = {
+  bookHash: 'abc',
+  title: 'Dune',
+  author: 'Frank Herbert',
+  artwork: 'cover.png',
+  skipSeconds: 20,
+};
 
 describe('createAudiobookSession (native)', () => {
   let native: InstanceType<typeof mocks.FakeNativeSession>;
@@ -55,8 +61,8 @@ describe('createAudiobookSession (native)', () => {
     expect(a.play).toHaveBeenCalled();
     expect(a.previous).toHaveBeenCalled();
     expect(a.next).toHaveBeenCalled();
-    expect(a.seekBy).toHaveBeenCalledWith(30);
-    expect(a.seekBy).toHaveBeenCalledWith(-10);
+    expect(a.seekBy).toHaveBeenCalledWith(20);
+    expect(a.seekBy).toHaveBeenCalledWith(-20);
     expect(a.seekTo).toHaveBeenCalledWith(90);
   });
 
@@ -107,7 +113,7 @@ describe('createAudiobookSession (browser)', () => {
     handlers['seekto']!({ seekTime: 33 });
     handlers['seekbackward']!();
     expect(a.seekTo).toHaveBeenCalledWith(33);
-    expect(a.seekBy).toHaveBeenCalledWith(-10);
+    expect(a.seekBy).toHaveBeenCalledWith(-20);
 
     session.update({ playing: true, position: 5, duration: 100, speed: 1.5 });
     expect(web.playbackState).toBe('playing');

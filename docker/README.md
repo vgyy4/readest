@@ -193,15 +193,26 @@ server. The iOS workflow in this fork reads them from the repository variables
 
 Audio files import like books: m4b, m4a, mp3, aac, ogg, opus, flac and wav, one
 file per audiobook. Readest reads the title, author, cover art and chapters from
-the file's tags (m4b and ID3 chapters included) and opens it in a player instead
-of the reader: cover, chapter title, seek bar, previous/next chapter, back 10 s,
-play/pause, forward 30 s, speed, sleep timer (minutes or end of chapter) and the
-chapter list. The same player runs on Android, iOS and desktop, with lock screen
-and notification controls and background playback. Progress is kept per profile
-and synced like any book's (the position is stored in whole seconds).
+the file's tags (m4b and ID3 chapters included) and opens it in a player modelled
+on [Voice](https://github.com/PaulWoitaschek/Voice): colors taken from the cover,
+a cover you tap to play and swipe to change chapter, book progress as one pill per
+chapter, a chapter switcher, a wavy seek bar with a "Back to" chip after a big
+jump, rewind/fast forward (20 s by default, 5-60 s in the menu), sleep timer
+(5/15/30/60 min, custom, or end of chapter), speed 0.5-3x and bookmarks (tap the
+bookmark button to open them, hold it to save the current moment).
 
-Not yet: audiobooks made of many files (join them into one m4b first), bookmarks,
-and streaming from a server (the file is stored on the device like any book).
+The ⋮ menu switches between two looks of the same player so they can be compared:
+**Material** (Voice's Material 3 Expressive look) and **Liquid glass** (frosted
+translucent surfaces over a blurred cover; uses `backdrop-filter`, so it needs
+iOS 9+/Android WebView 76+). The choice is remembered.
+
+The same player runs on Android, iOS and desktop, with lock screen and
+notification controls and background playback. Progress is kept per profile and
+synced like any book's (the position is stored in whole seconds).
+
+Not yet: audiobooks made of many files (join them into one m4b first), skip
+silence, volume boost, listening history, and streaming from a server (the file
+is stored on the device like any book).
 
 ## Database schema
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Book } from '@/types/book';
+import { v4 as uuidv4 } from 'uuid';
+import { Book, BookNote } from '@/types/book';
 import { useEnv } from '@/context/EnvContext';
 import { useLibraryStore } from '@/store/libraryStore';
 import { useSettingsStore } from '@/store/settingsStore';
@@ -8,14 +9,18 @@ import type { BaseDir } from '@/types/system';
 import { withReadingStatus } from '@/app/library/utils/libraryUtils';
 import { parseAudiobook } from '@/libs/audiobook/metadata';
 import { createAudiobookSession } from '@/libs/audiobook/session';
+import { CoverColor, sampleCoverColor } from '@/libs/audiobook/palette';
 import {
   AudioChapter,
   chapterIndexAt,
   clampPosition,
-  nextSpeed,
+  clampSkip,
+  clampSpeed,
+  DEFAULT_SKIP_SECONDS,
+  isUndoableJump,
+  Jump,
+  JumpKind,
   progressFromPosition,
-  SKIP_BACK_SECONDS,
-  SKIP_FORWARD_SECONDS,
   sleepDeadline,
   sleepSecondsLeft,
   SleepOption,
@@ -25,6 +30,12 @@ const CONFIG_SAVE_MS = 10_000;
 const LIBRARY_SAVE_MS = 30_000;
 const FINISHED_WITHIN_SECONDS = 5;
 const AUDIO_LOCATION = 'audio:';
+const SKIP_KEY = 'readest-audiobook-skip';
+
+const readSkip = () => {
+  const saved = Number(typeof localStorage === 'undefined' ? NaN : localStorage.getItem(SKIP_KEY));
+  return Number.isFinite(saved) && saved > 0 ? clampSkip(saved) : DEFAULT_SKIP_SECONDS;
+};
 
 /** Where the book was left: the config's `audio:<seconds>`, else the book's synced progress. */
 const savedPosition = (location: string | undefined, progress: [number, number] | undefined) => {
@@ -35,10 +46,16 @@ const savedPosition = (location: string | undefined, progress: [number, number] 
   return progress?.[0] ?? 0;
 };
 
+export const bookmarkSeconds = (note: Pick<BookNote, 'cfi'>) =>
+  Number(note.cfi.slice(AUDIO_LOCATION.length));
+
+const isAudioBookmark = (note: BookNote) =>
+  note.type === 'bookmark' && note.cfi?.startsWith(AUDIO_LOCATION) && !note.deletedAt;
+
 /**
  * Plays an audiobook: resolves its file, reads its chapters, resumes where this
- * profile left off, and saves progress (to the profile's own config and library
- * entry, so it syncs like any book's). `audioRef` goes on the <audio> element.
+ * profile left off, and saves progress and bookmarks (to the profile's own config
+ * and library entry, so they sync like any book's). `audioProps` goes on <audio>.
  */
 export const useAudiobook = (book: Book) => {
   const { envConfig, appService } = useEnv();
@@ -47,14 +64,19 @@ export const useAudiobook = (book: Book) => {
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [src, setSrc] = useState('');
+  const [coverUrl, setCoverUrl] = useState(book.coverImageUrl ?? '');
+  const [color, setColor] = useState<CoverColor | null>(null);
   const [error, setError] = useState('');
   const [chapters, setChapters] = useState<AudioChapter[]>([]);
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
   const [speed, setSpeedState] = useState(1);
+  const [skipSeconds, setSkipState] = useState(readSkip);
   const [sleep, setSleepState] = useState<SleepOption>(null);
   const [deadline, setDeadline] = useState<number | null>(null);
+  const [bookmarks, setBookmarks] = useState<BookNote[]>([]);
+  const [jump, setJump] = useState<Jump | null>(null);
   const [now, setNow] = useState(Date.now());
 
   const resume = useRef(0);
@@ -102,9 +124,10 @@ export const useAudiobook = (book: Book) => {
     [appService, book, envConfig, settings, updateBook],
   );
 
-  // Find the file, its chapters, and where this profile left off.
+  // Find the file, its chapters and cover, and where this profile left off.
   useEffect(() => {
     let cancelled = false;
+    let coverObjectUrl = '';
     void (async () => {
       if (!appService) return;
       try {
@@ -127,7 +150,13 @@ export const useAudiobook = (book: Book) => {
             : URL.createObjectURL(file);
         const config = await appService.loadBookConfig(book, settings);
         if (cancelled) return;
+        // The embedded cover is same-origin, so its colors can be read.
+        if (info.cover) {
+          coverObjectUrl = URL.createObjectURL(info.cover);
+          setCoverUrl(coverObjectUrl);
+        }
         resume.current = savedPosition(config?.location, book.progress);
+        setBookmarks((config?.booknotes ?? []).filter(isAudioBookmark));
         setChapters(info.chapters);
         setDuration(info.duration);
         latest.current.duration = info.duration;
@@ -138,22 +167,53 @@ export const useAudiobook = (book: Book) => {
     })();
     return () => {
       cancelled = true;
+      if (coverObjectUrl) URL.revokeObjectURL(coverObjectUrl);
     };
     // The book's file does not change while the player is open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [book.hash, appService]);
 
-  const seekTo = useCallback((seconds: number) => {
+  useEffect(() => {
+    if (!coverUrl) return;
+    let cancelled = false;
+    void sampleCoverColor(coverUrl).then((c) => !cancelled && setColor(c));
+    return () => {
+      cancelled = true;
+    };
+  }, [coverUrl]);
+
+  /** Move to `seconds`. A big jump can be taken back for ten seconds ("Back to"). */
+  const seekTo = useCallback((seconds: number, kind: JumpKind = 'seek') => {
     const audio = audioRef.current;
     if (!audio) return;
     const total = latest.current.duration || audio.duration || 0;
-    audio.currentTime = clampPosition(seconds, total);
+    const from = audio.currentTime;
+    const to = clampPosition(seconds, total);
+    if (isUndoableJump(kind, from, to, chaptersRef.current)) {
+      const at = Date.now();
+      setJump({ id: at, from, at });
+      setNow(at);
+    }
+    audio.currentTime = to;
+    latest.current.position = to;
+    setPosition(to);
   }, []);
 
-  const seekBy = useCallback(
-    (delta: number) => seekTo((audioRef.current?.currentTime ?? 0) + delta),
+  const skipBy = useCallback(
+    (delta: number) => seekTo((audioRef.current?.currentTime ?? 0) + delta, 'skip'),
     [seekTo],
   );
+
+  const undoJump = useCallback(() => {
+    if (!jump) return;
+    const audio = audioRef.current;
+    if (audio) {
+      audio.currentTime = jump.from;
+      latest.current.position = jump.from;
+      setPosition(jump.from);
+    }
+    setJump(null);
+  }, [jump]);
 
   const play = useCallback(() => void audioRef.current?.play().catch(() => {}), []);
   const pause = useCallback(() => audioRef.current?.pause(), []);
@@ -171,17 +231,22 @@ export const useAudiobook = (book: Book) => {
           : at - (list[index]?.start ?? 0) > 3
             ? list[index]
             : list[index - 1];
-      if (target) seekTo(target.start);
+      if (target) seekTo(target.start, 'chapter');
     },
     [seekTo],
   );
 
   const setSpeed = useCallback((value: number) => {
-    setSpeedState(value);
-    if (audioRef.current) audioRef.current.playbackRate = value;
+    const next = clampSpeed(value);
+    setSpeedState(next);
+    if (audioRef.current) audioRef.current.playbackRate = next;
   }, []);
 
-  const cycleSpeed = useCallback(() => setSpeed(nextSpeed(speed)), [setSpeed, speed]);
+  const setSkipSeconds = useCallback((seconds: number) => {
+    const next = clampSkip(seconds);
+    setSkipState(next);
+    localStorage.setItem(SKIP_KEY, String(next));
+  }, []);
 
   const setSleep = useCallback(
     (option: SleepOption) => {
@@ -192,6 +257,62 @@ export const useAudiobook = (book: Book) => {
       setDeadline(sleepDeadline(option, Date.now(), at, chapter?.end ?? at, speed));
     },
     [speed],
+  );
+
+  const saveBookmarks = useCallback(
+    async (next: BookNote[]) => {
+      setBookmarks(next.filter(isAudioBookmark));
+      if (!appService) return;
+      const config = await appService.loadBookConfig(book, settings);
+      const others = (config?.booknotes ?? []).filter((n) => !next.some((b) => b.id === n.id));
+      await appService.saveBookConfig(
+        book,
+        {
+          ...INIT_BOOK_CONFIG,
+          ...config,
+          booknotes: [...others, ...next],
+          updatedAt: Date.now(),
+        },
+        settings,
+      );
+    },
+    [appService, book, settings],
+  );
+
+  /** Save the current moment. */
+  const addBookmark = useCallback(
+    (label = '') => {
+      const at = Math.floor(audioRef.current?.currentTime ?? latest.current.position);
+      const chapter = chaptersRef.current[chapterIndexAt(chaptersRef.current, at)];
+      const stamp = Date.now();
+      const bookmark: BookNote = {
+        id: uuidv4(),
+        type: 'bookmark',
+        cfi: `${AUDIO_LOCATION}${at}`,
+        text: chapter?.title ?? '',
+        note: label,
+        createdAt: stamp,
+        updatedAt: stamp,
+      };
+      return saveBookmarks([...bookmarks, bookmark]);
+    },
+    [bookmarks, saveBookmarks],
+  );
+
+  const removeBookmark = useCallback(
+    (id: string) => {
+      const stamp = Date.now();
+      const next = bookmarks.map((b) =>
+        b.id === id ? { ...b, deletedAt: stamp, updatedAt: stamp } : b,
+      );
+      return saveBookmarks(next);
+    },
+    [bookmarks, saveBookmarks],
+  );
+
+  const goToBookmark = useCallback(
+    (bookmark: BookNote) => seekTo(bookmarkSeconds(bookmark), 'bookmark'),
+    [seekTo],
   );
 
   // Sleep timer: pause when the deadline passes.
@@ -208,16 +329,31 @@ export const useAudiobook = (book: Book) => {
     return () => clearInterval(timer);
   }, [deadline]);
 
+  // Let the "Back to" pill run out.
+  useEffect(() => {
+    if (!jump) return;
+    const timer = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(timer);
+  }, [jump]);
+
   // Lock screen, notification and headset controls.
   useEffect(() => {
     if (!src) return;
     const session = createAudiobookSession(
-      { play, pause, previous: () => jumpChapter(-1), next: () => jumpChapter(1), seekBy, seekTo },
+      {
+        play,
+        pause,
+        previous: () => jumpChapter(-1),
+        next: () => jumpChapter(1),
+        seekBy: skipBy,
+        seekTo: (seconds) => seekTo(seconds, 'skip'),
+      },
       {
         bookHash: book.hash,
         title: book.title,
         author: book.author,
-        artwork: book.coverImageUrl ?? undefined,
+        artwork: coverUrl || undefined,
+        skipSeconds,
       },
     );
     sessionRef.current = session;
@@ -230,13 +366,15 @@ export const useAudiobook = (book: Book) => {
     book.hash,
     book.title,
     book.author,
-    book.coverImageUrl,
+    coverUrl,
+    skipSeconds,
     play,
     pause,
-    seekBy,
+    skipBy,
     seekTo,
     jumpChapter,
   ]);
+
   useEffect(() => {
     sessionRef.current?.update({ playing, position, duration, speed });
   }, [playing, position, duration, speed]);
@@ -295,6 +433,8 @@ export const useAudiobook = (book: Book) => {
   return {
     audioProps,
     error,
+    coverUrl,
+    color,
     chapters,
     chapterIndex,
     chapter: chapters[chapterIndex],
@@ -302,15 +442,24 @@ export const useAudiobook = (book: Book) => {
     position,
     duration,
     speed,
+    skipSeconds,
     sleep,
     sleepLeft: sleepSecondsLeft(deadline, now),
+    bookmarks,
+    jump,
+    now,
     toggle,
     seekTo,
-    skipBack: () => seekBy(-SKIP_BACK_SECONDS),
-    skipForward: () => seekBy(SKIP_FORWARD_SECONDS),
+    skipBack: () => skipBy(-skipSeconds),
+    skipForward: () => skipBy(skipSeconds),
     previousChapter: () => jumpChapter(-1),
     nextChapter: () => jumpChapter(1),
-    cycleSpeed,
+    undoJump,
+    setSpeed,
+    setSkipSeconds,
     setSleep,
+    addBookmark,
+    removeBookmark,
+    goToBookmark,
   };
 };

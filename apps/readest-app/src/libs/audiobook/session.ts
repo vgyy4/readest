@@ -1,5 +1,4 @@
 import { getMediaSession, TauriMediaSession } from '@/libs/mediaSession';
-import { SKIP_BACK_SECONDS, SKIP_FORWARD_SECONDS } from './player';
 
 export interface TransportActions {
   play(): void;
@@ -15,6 +14,8 @@ export interface SessionInfo {
   title: string;
   author: string;
   artwork?: string;
+  /** How far the rewind and fast-forward buttons jump. */
+  skipSeconds: number;
 }
 
 export interface SessionState {
@@ -42,8 +43,8 @@ export const createAudiobookSession = (actions: TransportActions, info: SessionI
     session.setActionHandler('toggle', () => (playing ? actions.pause() : actions.play()));
     session.setActionHandler('previoustrack', actions.previous);
     session.setActionHandler('nexttrack', actions.next);
-    session.setActionHandler('seekforward', () => actions.seekBy(SKIP_FORWARD_SECONDS));
-    session.setActionHandler('seekbackward', () => actions.seekBy(-SKIP_BACK_SECONDS));
+    session.setActionHandler('seekforward', () => actions.seekBy(info.skipSeconds));
+    session.setActionHandler('seekbackward', () => actions.seekBy(-info.skipSeconds));
     // The native seek contract is milliseconds.
     session.setActionHandler('seekto', (ms: number) => actions.seekTo(ms / 1000));
     void session.setActive({
@@ -102,8 +103,8 @@ export const createAudiobookSession = (actions: TransportActions, info: SessionI
   set('pause', actions.pause);
   set('previoustrack', actions.previous);
   set('nexttrack', actions.next);
-  set('seekbackward', () => actions.seekBy(-SKIP_BACK_SECONDS));
-  set('seekforward', () => actions.seekBy(SKIP_FORWARD_SECONDS));
+  set('seekbackward', () => actions.seekBy(-info.skipSeconds));
+  set('seekforward', () => actions.seekBy(info.skipSeconds));
   set('seekto', (details) => {
     if (details.seekTime !== undefined && details.seekTime !== null) {
       actions.seekTo(details.seekTime);
