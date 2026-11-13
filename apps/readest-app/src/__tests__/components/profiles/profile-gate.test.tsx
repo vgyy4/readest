@@ -153,3 +153,34 @@ describe('ProfileGate', () => {
     expect(getCachedProfiles()?.profiles).toHaveLength(2);
   });
 });
+
+describe('ProfileGate when the server cannot list the profiles', () => {
+  it('says so and offers to try again or carry on, instead of silently skipping the screen', async () => {
+    mocks.fetchProfiles.mockRejectedValue(new Error('Something went wrong'));
+    renderGate();
+    expect((await screen.findByRole('alert')).textContent).toBe('Something went wrong');
+    expect(screen.queryByText('the library')).toBeNull();
+
+    mocks.fetchProfiles.mockImplementation(async () => {
+      setCachedProfiles(withPictures);
+      return withPictures;
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('Who is reading?')).toBeTruthy();
+  });
+
+  it('can continue as the main profile', async () => {
+    mocks.fetchProfiles.mockRejectedValue(new Error('Something went wrong'));
+    renderGate();
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as main profile' }));
+    expect(await screen.findByText('the library')).toBeTruthy();
+    expect(getActiveProfileId()).toBeNull();
+  });
+
+  it('does not nag when the device is simply offline', async () => {
+    mocks.fetchProfiles.mockRejectedValue(new TypeError('Load failed'));
+    renderGate();
+    expect(await screen.findByText('the library')).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+});

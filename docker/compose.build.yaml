@@ -1,5 +1,7 @@
 services:
   client:
+    # Building locally: never try to pull this image from the registry.
+    pull_policy: build
     build:
       context: ..
       target: production-stage

@@ -109,6 +109,11 @@ const ProfilePicker: React.FC<ProfilePickerProps> = ({ state, onEnter }) => {
       ) : (
         <div className='my-auto flex w-full max-w-3xl flex-col items-center gap-8'>
           <h1 className='font-serif text-3xl'>{_('Who is reading?')}</h1>
+          {state.needsMigration && (
+            <p className='text-warning max-w-md text-center text-xs'>
+              {_('Pictures need an update on the server. Run its database update to enable them.')}
+            </p>
+          )}
           <ul className='flex flex-wrap justify-center gap-x-8 gap-y-7'>
             {tiles.map((tile) => (
               <li key={tile.id ?? 'main'}>

@@ -97,6 +97,8 @@ cd docker
 docker compose pull
 docker compose up -d
 docker compose exec db /docker-entrypoint-initdb.d/zz-readest-migrations.sh
+# check the client really is the newest image (its date should be recent):
+docker image inspect ghcr.io/vgyy4/readest:profiles --format '{{.Created}}'
 ```
 
 the script records what it applied in `readest_meta.migrations` and skips those

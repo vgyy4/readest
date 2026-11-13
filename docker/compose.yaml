@@ -128,7 +128,9 @@ services:
   client:
     container_name: readest-client
     image: ${READEST_IMAGE:-ghcr.io/readest/readest:latest}
-    pull_policy: missing
+    # Always check the registry: the `profiles` tag is a rolling one, and `missing` kept an old
+    # copy forever (a plain `docker compose pull` then said "Skipped, already present locally").
+    pull_policy: always
     restart: unless-stopped
     ports:
       - "3000:3000"

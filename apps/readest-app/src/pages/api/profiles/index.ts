@@ -3,6 +3,11 @@ import { randomUUID } from 'node:crypto';
 import { corsAllMethods, runMiddleware } from '@/utils/cors';
 import { MAX_PROFILES, requireMaster } from '@/libs/profiles/api';
 
+/** A column or table the database does not have yet (an update that was not applied). */
+export const isMissingSchema = (error: { code?: string; message?: string }) =>
+  ['42703', '42P01', 'PGRST204', 'PGRST205'].includes(error.code ?? '') ||
+  /avatar|profile_main_meta/i.test(error.message ?? '');
+
 const cleanName = (name: unknown) => (typeof name === 'string' ? name.trim().slice(0, 40) : '');
 
 /**
@@ -20,17 +25,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const { ownerId, admin } = master;
 
     if (req.method === 'GET') {
-      const [{ data: profiles, error }, { data: pin }, { data: mainMeta }] = await Promise.all([
+      const listProfiles = (columns: string) =>
         admin
           .from('profiles')
-          .select('profile_user_id, name, avatar, created_at')
+          .select(columns)
           .eq('owner_id', ownerId)
-          .order('created_at'),
+          .order('created_at') as unknown as Promise<{
+          data: Record<string, unknown>[] | null;
+          error: { code?: string; message?: string } | null;
+        }>;
+      const [first, { data: pin }, { data: mainMeta }] = await Promise.all([
+        listProfiles('profile_user_id, name, avatar, created_at'),
         admin.from('profile_pins').select('owner_id').eq('owner_id', ownerId).maybeSingle(),
         admin.from('profile_main_meta').select('avatar').eq('owner_id', ownerId).maybeSingle(),
       ]);
+      let { data: profiles, error } = first;
+      // The pictures need database migration 021. Until it is applied, still list the profiles
+      // (with no pictures) and say so, rather than failing the whole profile screen.
+      let needsMigration = false;
+      if (error && isMissingSchema(error)) {
+        needsMigration = true;
+        ({ data: profiles, error } = await listProfiles('profile_user_id, name, created_at'));
+      }
       if (error) throw error;
-      const ids = (profiles ?? []).map((p) => p.profile_user_id as string);
+      const ids = (profiles ?? []).map((p) => p['profile_user_id'] as string);
       const { data: pins } = ids.length
         ? await admin.from('profile_user_pins').select('profile_user_id').in('profile_user_id', ids)
         : { data: [] };
@@ -38,12 +56,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json({
         hasPin: !!pin,
         mainAvatar: mainMeta?.avatar ?? null,
+        ...(needsMigration ? { needsMigration: true } : {}),
         profiles: (profiles ?? []).map((p) => ({
-          id: p.profile_user_id,
-          name: p.name,
-          avatar: p.avatar ?? null,
-          createdAt: p.created_at,
-          hasPin: withPin.has(p.profile_user_id as string),
+          id: p['profile_user_id'],
+          name: p['name'],
+          avatar: (p['avatar'] as string | null | undefined) ?? null,
+          createdAt: p['created_at'],
+          hasPin: withPin.has(p['profile_user_id'] as string),
         })),
       });
     }

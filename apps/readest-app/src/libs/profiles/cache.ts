@@ -11,6 +11,8 @@ export interface ProfilesState {
   hasPin: boolean;
   /** The main profile's picture. */
   mainAvatar?: string | null;
+  /** The server's database update for pictures has not been applied yet. */
+  needsMigration?: boolean;
   profiles: ProfileInfo[];
 }
 
