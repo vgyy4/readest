@@ -123,6 +123,23 @@ docker compose -f compose.yaml -f compose.dev.yaml up --build -d
 
 the first mount overlays your local repo into the container. the remaining anonymous volumes shadow the directories that were pre-built inside the image, so the container's installed deps and vendor assets are used instead of what's on your host.
 
+### Small hosts (2 GB LXC, Raspberry Pi, tiny VPS)
+
+`compose.lowmem.yaml` keeps every service and feature but shrinks Postgres' caches and
+connection count, pins the Go/Node runtimes to small heaps, and caps each container's memory:
+
+```bash
+cd docker
+docker compose -f compose.yaml -f compose.lowmem.yaml up -d
+```
+
+Use the same two `-f` flags for `pull`, `up`, `down` and `exec`. Also cap Docker's own logs
+(by default they grow without limit) in `/etc/docker/daemon.json`, then `systemctl restart docker`:
+
+```json
+{ "log-driver": "json-file", "log-opts": { "max-size": "10m", "max-file": "3" } }
+```
+
 ### Stop the Stack
 
 ```bash

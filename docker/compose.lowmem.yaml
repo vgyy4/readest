@@ -1,0 +1,68 @@
+# Low-memory overrides for small hosts (a 2 GB LXC or VM, a Raspberry Pi, a tiny VPS).
+#
+#   docker compose -f compose.yaml -f compose.lowmem.yaml up -d
+#
+# Nothing is removed: every service, feature and migration is still there. This only
+# (1) shrinks Postgres' caches and connection count, (2) pins the Go and Node runtimes to
+# small heaps and few threads, and (3) puts a ceiling on each container so one of them
+# cannot take the whole host. A small library (a few users, a few thousand books) does
+# not notice; a very busy server should use the stock compose.yaml instead.
+#
+# Typical use: about 1 GB in total at rest instead of 2 GB.
+
+services:
+  db:
+    mem_limit: 768m
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+      - -c
+      - log_min_messages=fatal
+      - -c
+      - shared_buffers=64MB
+      - -c
+      - effective_cache_size=256MB
+      - -c
+      - work_mem=2MB
+      - -c
+      - maintenance_work_mem=32MB
+      - -c
+      - max_connections=40
+      - -c
+      - max_worker_processes=4
+      - -c
+      - max_parallel_workers=2
+      - -c
+      - max_parallel_workers_per_gather=0
+      - -c
+      - autovacuum_max_workers=2
+
+  kong:
+    mem_limit: 384m
+    environment:
+      KONG_NGINX_WORKER_PROCESSES: "1"
+      KONG_MEM_CACHE_SIZE: 32m
+
+  auth:
+    mem_limit: 192m
+    environment:
+      GOMAXPROCS: "1"
+      GOMEMLIMIT: 128MiB
+      GOTRUE_DB_MAX_POOL_SIZE: "5"
+
+  rest:
+    mem_limit: 192m
+    environment:
+      PGRST_DB_POOL: "5"
+
+  minio:
+    mem_limit: 512m
+    environment:
+      GOMAXPROCS: "2"
+      GOMEMLIMIT: 320MiB
+
+  client:
+    mem_limit: 512m
+    environment:
+      NODE_OPTIONS: --max-old-space-size=320
