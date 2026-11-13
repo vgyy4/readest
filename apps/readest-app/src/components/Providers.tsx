@@ -1,13 +1,13 @@
 'use client';
 
 import '@/utils/polyfill';
-import posthog from 'posthog-js';
 import i18n from '@/i18n/i18n';
 import { useEffect, useState } from 'react';
 import { IconContext } from 'react-icons';
 import { AuthProvider } from '@/context/AuthContext';
 import { useEnv } from '@/context/EnvContext';
-import { CSPostHogProvider } from '@/context/PHContext';
+import { CSPostHogProvider, initPosthog } from '@/context/PHContext';
+import { analytics } from '@/libs/analytics';
 import { SyncProvider } from '@/context/SyncContext';
 import { initSystemThemeListener, loadDataTheme } from '@/store/themeStore';
 import { useSettingsStore } from '@/store/settingsStore';
@@ -26,19 +26,29 @@ import {
   setTelemetryDecision,
   TELEMETRY_OPT_OUT_KEY,
 } from '@/utils/telemetry';
+import { isTelemetryBuildEnabled } from '@/utils/telemetryKeys';
 import { getLibraryViewSettings } from '@/helpers/settings';
 import { SETTINGS_FILENAME } from '@/services/constants';
 import type { AppService } from '@/types/system';
 import type { SystemSettings } from '@/types/settings';
 import { DropdownProvider } from '@/context/DropdownContext';
-import { CommandPaletteProvider, CommandPalette } from '@/components/command-palette';
-import AtmosphereOverlay from '@/components/AtmosphereOverlay';
+import dynamic from 'next/dynamic';
+import Deferred from '@/components/Deferred';
+import { CommandPaletteProvider } from '@/components/command-palette';
 import AppLockScreen from '@/components/AppLockScreen';
 import ProfileGate from '@/components/profiles/ProfileGate';
 import { installAccessFetch } from '@/libs/cloudflareAccess';
-import AppLockDialog from '@/components/settings/AppLockDialog';
-import PassphrasePrompt from '@/components/PassphrasePrompt';
-import TelemetryConsentDialog from '@/components/TelemetryConsentDialog';
+// None of these is needed to show the library: they load in idle time after the first paint.
+const CommandPalette = dynamic(
+  () => import('@/components/command-palette').then((m) => m.CommandPalette),
+  { ssr: false },
+);
+const AtmosphereOverlay = dynamic(() => import('@/components/AtmosphereOverlay'), { ssr: false });
+const AppLockDialog = dynamic(() => import('@/components/settings/AppLockDialog'), { ssr: false });
+const PassphrasePrompt = dynamic(() => import('@/components/PassphrasePrompt'), { ssr: false });
+const TelemetryConsentDialog = dynamic(() => import('@/components/TelemetryConsentDialog'), {
+  ssr: false,
+});
 import { upgradeToKeychainIfAvailable } from '@/libs/crypto/passphrase';
 import { cryptoSession } from '@/libs/crypto/session';
 import { useAppLockStore } from '@/store/appLockStore';
@@ -64,6 +74,12 @@ const finalizeTelemetryDecision = ({
   isNewUser: boolean;
   onShowPrompt: () => void;
 }) => {
+  if (!isTelemetryBuildEnabled()) {
+    // This build sends nothing, so there is nothing to ask about.
+    localStorage.setItem(TELEMETRY_OPT_OUT_KEY, 'true');
+    setTelemetryDecision('opt-out');
+    return;
+  }
   const existing = getTelemetryDecision();
   if (existing === 'pending') {
     onShowPrompt();
@@ -76,11 +92,11 @@ const finalizeTelemetryDecision = ({
     // their saved preference and record the decision so we stop checking.
     if (settings.telemetryEnabled) {
       localStorage.setItem(TELEMETRY_OPT_OUT_KEY, 'false');
-      posthog.opt_in_capturing();
+      void initPosthog().then(() => analytics.optIn());
       setTelemetryDecision('opt-in');
     } else {
       localStorage.setItem(TELEMETRY_OPT_OUT_KEY, 'true');
-      posthog.opt_out_capturing();
+      analytics.optOut();
       setTelemetryDecision('opt-out');
     }
     return;
@@ -93,7 +109,7 @@ const finalizeTelemetryDecision = ({
     onShowPrompt();
   } else {
     localStorage.setItem(TELEMETRY_OPT_OUT_KEY, 'true');
-    posthog.opt_out_capturing();
+    analytics.optOut();
     setTelemetryDecision('opt-out');
     // Persist the off-by-default to the settings file directly. The settings
     // store isn't seeded yet at this point in boot, so saveSysSettings would
@@ -242,15 +258,19 @@ const Providers = ({ children }: { children: React.ReactNode }) => {
                   style={appShellHidden ? { display: 'none' } : undefined}
                 >
                   <ProfileGate>{children}</ProfileGate>
-                  <CommandPalette />
-                  <AtmosphereOverlay />
-                  <PassphrasePrompt />
+                  <Deferred>
+                    <CommandPalette />
+                    <AtmosphereOverlay />
+                    <PassphrasePrompt />
+                  </Deferred>
                 </div>
-                <AppLockDialog />
-                <TelemetryConsentDialog
-                  open={showTelemetryConsent}
-                  onClose={() => setShowTelemetryConsent(false)}
-                />
+                <Deferred>
+                  <AppLockDialog />
+                  <TelemetryConsentDialog
+                    open={showTelemetryConsent}
+                    onClose={() => setShowTelemetryConsent(false)}
+                  />
+                </Deferred>
                 {showAppLockScreen && <AppLockScreen />}
               </CommandPaletteProvider>
             </DropdownProvider>

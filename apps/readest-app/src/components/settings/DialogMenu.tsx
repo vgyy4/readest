@@ -7,7 +7,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useReaderStore } from '@/store/readerStore';
 import { useCustomFontStore } from '@/store/customFontStore';
 import { saveViewSettings } from '@/helpers/settings';
-import { SettingsPanelType } from './SettingsDialog';
+import type { SettingsPanelType } from './SettingsDialog';
 import Menu from '@/components/Menu';
 import MenuItem from '@/components/MenuItem';
 

@@ -1,7 +1,9 @@
-import posthog from 'posthog-js';
+import { analytics, isAnalyticsRunning } from '@/libs/analytics';
+import { initPosthog } from '@/context/PHContext';
 
-export const TELEMETRY_OPT_OUT_KEY = 'readest-telemetry-opt-out';
-export const TELEMETRY_DECISION_KEY = 'readest-telemetry-decision';
+import { TELEMETRY_DECISION_KEY, TELEMETRY_OPT_OUT_KEY } from './telemetryKeys';
+
+export { TELEMETRY_DECISION_KEY, TELEMETRY_OPT_OUT_KEY };
 
 export type TelemetryDecision = 'opt-in' | 'opt-out' | 'pending';
 
@@ -29,18 +31,18 @@ export const rollIntoTelemetryPromptBucket = (rng: () => number = Math.random) =
 };
 
 export const captureEvent = (event: string, properties?: Record<string, unknown>) => {
-  if (!hasOptedOutTelemetry()) {
-    posthog.capture(event, properties);
+  if (!hasOptedOutTelemetry() && isAnalyticsRunning()) {
+    analytics.capture(event, properties);
   }
 };
 
 export const optInTelemetry = () => {
   localStorage.setItem(TELEMETRY_OPT_OUT_KEY, 'false');
   setTelemetryDecision('opt-in');
-  posthog.opt_in_capturing();
+  void initPosthog().then(() => analytics.optIn());
 };
 export const optOutTelemetry = () => {
   localStorage.setItem(TELEMETRY_OPT_OUT_KEY, 'true');
   setTelemetryDecision('opt-out');
-  posthog.opt_out_capturing();
+  analytics.optOut();
 };

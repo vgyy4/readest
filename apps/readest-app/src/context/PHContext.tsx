@@ -1,9 +1,12 @@
 'use client';
 
-import posthog from 'posthog-js';
 import { ReactNode, useEffect } from 'react';
-import { PostHogProvider } from 'posthog-js/react';
-import { TELEMETRY_DECISION_KEY, TELEMETRY_OPT_OUT_KEY } from '@/utils/telemetry';
+import { analytics, isAnalyticsRunning, startAnalytics } from '@/libs/analytics';
+import {
+  isTelemetryBuildEnabled,
+  TELEMETRY_DECISION_KEY,
+  TELEMETRY_OPT_OUT_KEY,
+} from '@/utils/telemetryKeys';
 import { getAppVersion } from '@/utils/version';
 
 // Returns true if PostHog should be opted-out at boot time, before settings
@@ -22,23 +25,28 @@ const shouldOptOutAtBoot = () => {
 const posthogUrl =
   process.env['NEXT_PUBLIC_POSTHOG_HOST'] ||
   atob(process.env['NEXT_PUBLIC_DEFAULT_POSTHOG_URL_BASE64']!);
-const posthogKey =
-  process.env['NEXT_PUBLIC_POSTHOG_KEY'] ||
-  atob(process.env['NEXT_PUBLIC_DEFAULT_POSTHOG_KEY_BASE64']!);
+const posthogKey = isTelemetryBuildEnabled()
+  ? process.env['NEXT_PUBLIC_POSTHOG_KEY'] ||
+    atob(process.env['NEXT_PUBLIC_DEFAULT_POSTHOG_KEY_BASE64']!)
+  : '';
 
-if (typeof window !== 'undefined' && process.env['NODE_ENV'] === 'production' && posthogKey) {
-  posthog.init(posthogKey, {
-    api_host: posthogUrl,
-    person_profiles: 'always',
-    autocapture: false,
-    opt_out_capturing_by_default: shouldOptOutAtBoot(),
-  });
-}
+/**
+ * Start PostHog. Until the user has opted in it is not loaded at all: even "opted out" it
+ * fetched its configuration and three scripts from another server at every launch, which
+ * cost time on slow devices and told a third party that the app was opened.
+ */
+export const initPosthog = () =>
+  startAnalytics({ key: posthogKey, host: posthogUrl, optedOut: shouldOptOutAtBoot() });
+
+const registerSession = () => analytics.registerForSession({ $app_version: getAppVersion() });
+
+// Only a user who opted in gets PostHog loaded; everyone else never fetches it.
+if (typeof window !== 'undefined' && !shouldOptOutAtBoot())
+  void initPosthog().then(registerSession);
+
 export const CSPostHogProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
-    posthog.register_for_session({
-      $app_version: getAppVersion(),
-    });
+    if (isAnalyticsRunning()) registerSession();
   }, []);
-  return <PostHogProvider client={posthog}>{children}</PostHogProvider>;
+  return <>{children}</>;
 };

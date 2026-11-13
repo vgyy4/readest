@@ -1,6 +1,6 @@
 'use client';
 
-import posthog from 'posthog-js';
+import { analytics } from '@/libs/analytics';
 import { useEffect, useState } from 'react';
 import { useEnv } from '@/context/EnvContext';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -22,7 +22,7 @@ export default function ErrorPage({ error, reset }: ErrorPageProps) {
   }, [appService]);
 
   useEffect(() => {
-    posthog.captureException(error);
+    analytics.captureException(error);
     handleGlobalError(error);
   }, [appService, error]);
 

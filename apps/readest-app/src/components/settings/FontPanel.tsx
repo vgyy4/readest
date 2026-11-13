@@ -27,7 +27,7 @@ import { isTauriAppPlatform } from '@/services/environment';
 import { useResetViewSettings } from '@/hooks/useResetSettings';
 import { useKeyDownActions } from '@/hooks/useKeyDownActions';
 import { saveViewSettings } from '@/helpers/settings';
-import { SettingsPanelPanelProp } from './SettingsDialog';
+import type { SettingsPanelPanelProp } from './SettingsDialog';
 import { BoxedList, NavigationRow, SettingLabel, SettingsRow } from './primitives';
 import NumberInput from './NumberInput';
 import FontDropdown from './FontDropDown';

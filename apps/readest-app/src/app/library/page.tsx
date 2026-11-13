@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import * as React from 'react';
 import { MdChevronRight, MdClose } from 'react-icons/md';
 import { useState, useRef, useEffect, Suspense, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import { ReadonlyURLSearchParams, useSearchParams } from 'next/navigation';
 
 import { Book, BooksGroup, type LibrarySearchConfig } from '@/types/book';
@@ -83,9 +84,6 @@ import { AboutWindow } from '@/components/AboutWindow';
 import { KeyboardShortcutsHelp } from '@/components/KeyboardShortcutsHelp';
 import { BookDetailModal } from '@/components/metadata';
 import { UpdaterWindow } from '@/components/UpdaterWindow';
-import { CatalogDialog } from './components/OPDSDialog';
-import { FeedsView } from './components/feeds/FeedsView';
-import AddFeedModal from './components/feeds/AddFeedModal';
 import { fetchAndParseFeed } from '@/services/rss/feedClient';
 import { createFeedBook, ensureFeedBookCover } from '@/services/rss/feedBook';
 import { MigrateDataWindow } from './components/MigrateDataWindow';
@@ -108,23 +106,41 @@ import LibraryEmptyState from './components/LibraryEmptyState';
 import ProfileDialogsHost from './components/ProfileDialogsHost';
 import ImportMenuPopup from './components/ImportMenuPopup';
 import GroupHeader from './components/GroupHeader';
-import FailedImportsDialog, { FailedImport } from './components/FailedImportsDialog';
-import ImportFromFolderDialog, {
-  ImportFromFolderResult,
-} from './components/ImportFromFolderDialog';
-import ImportFromUrlDialog from './components/ImportFromUrlDialog';
-import ImportNovelDialog from './components/ImportNovelDialog';
-import NowPlayingBar from './components/NowPlayingBar';
-import { ttsSessionManager } from '@/services/tts';
-import { clipPageWithSignInFallback } from '@/services/send/clipSignIn';
+import type { FailedImport } from './components/FailedImportsDialog';
+import type { ImportFromFolderResult } from './components/ImportFromFolderDialog';
 import ClipSignInAlert from '@/components/ClipSignInAlert';
 import useShortcuts from '@/hooks/useShortcuts';
 import { useReplicaPull } from '@/hooks/useReplicaPull';
 import { useCustomFonts } from '@/hooks/useCustomFonts';
 import DropIndicator from '@/components/DropIndicator';
-import SettingsDialog from '@/components/settings/SettingsDialog';
+// Loaded only when opened: they pull in the reader engine, every settings panel and the AI
+// libraries, none of which the library itself needs to start.
+const NowPlayingBar = dynamic(() => import('./components/NowPlayingBar'), { ssr: false });
+const SettingsDialog = dynamic(() => import('@/components/settings/SettingsDialog'), {
+  ssr: false,
+});
+const CatalogDialog = dynamic(
+  () => import('./components/OPDSDialog').then((m) => m.CatalogDialog),
+  {
+    ssr: false,
+  },
+);
+const FeedsView = dynamic(() => import('./components/feeds/FeedsView').then((m) => m.FeedsView), {
+  ssr: false,
+});
+const AddFeedModal = dynamic(() => import('./components/feeds/AddFeedModal'), { ssr: false });
+const FailedImportsDialog = dynamic(() => import('./components/FailedImportsDialog'), {
+  ssr: false,
+});
+const ImportFromFolderDialog = dynamic(() => import('./components/ImportFromFolderDialog'), {
+  ssr: false,
+});
+const ImportFromUrlDialog = dynamic(() => import('./components/ImportFromUrlDialog'), {
+  ssr: false,
+});
+const ImportNovelDialog = dynamic(() => import('./components/ImportNovelDialog'), { ssr: false });
+const TransferQueuePanel = dynamic(() => import('./components/TransferQueuePanel'), { ssr: false });
 import ModalPortal from '@/components/ModalPortal';
-import TransferQueuePanel from './components/TransferQueuePanel';
 
 /** Skip tiny non-book artifacts during folder auto-scan (matches the manual import dialog default). */
 const AUTO_IMPORT_MIN_SIZE_BYTES = 20 * 1024;
@@ -214,6 +230,16 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
   const { clearBookData } = useBookDataStore();
   const { settings, setSettings, saveSettings } = useSettingsStore();
   const { isSettingsDialogOpen, setSettingsDialogOpen } = useSettingsStore();
+
+  // The settings window is loaded on demand, but fetched quietly a few seconds after start so
+  // that opening it for the first time does not wait for a megabyte of code.
+  useEffect(() => {
+    const timer = window.setTimeout(
+      () => void import('@/components/settings/SettingsDialog'),
+      4000,
+    );
+    return () => window.clearTimeout(timer);
+  }, []);
   // Field selector, not `const { isTransferQueueOpen } = useTransferStore()`:
   // a whole-store subscription re-renders the entire library tree on every
   // transfer progress tick (~10/sec per active upload), freezing the app
@@ -1104,6 +1130,7 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
             book.coverDownloadedAt = null;
           }
           await updateBook(envConfig, book);
+          const { ttsSessionManager } = await import('@/services/tts');
           if (ttsSessionManager.getSessionByHash(book.hash)) {
             await ttsSessionManager.stopActive('deleted');
           }
@@ -1255,6 +1282,7 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
     console.log('[clip] start', { url });
     setIsSelectMode(false);
     const t1 = performance.now();
+    const { clipPageWithSignInFallback } = await import('@/services/send/clipSignIn');
     const book = await clipPageWithSignInFallback(url, _, appService);
     console.log('[clip] epub built', {
       title: book.title,
@@ -2022,11 +2050,13 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
       {isSettingsDialogOpen && <SettingsDialog bookKey={''} />}
       {showCatalogManager && <CatalogDialog onClose={handleDismissOPDSDialog} />}
       {showFeeds && <FeedsView onClose={() => setShowFeeds(false)} />}
-      <AddFeedModal
-        isOpen={showAddFeed}
-        onClose={() => setShowAddFeed(false)}
-        onSubmit={handleAddFeedSubmit}
-      />
+      {showAddFeed && (
+        <AddFeedModal
+          isOpen={showAddFeed}
+          onClose={() => setShowAddFeed(false)}
+          onSubmit={handleAddFeedSubmit}
+        />
+      )}
       {failedImportsModal && (
         <FailedImportsDialog
           failedImports={failedImportsModal}
@@ -2082,16 +2112,20 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
           }}
         />
       )}
-      <ImportFromUrlDialog
-        isOpen={showImportFromUrl}
-        onClose={() => setShowImportFromUrl(false)}
-        onSubmit={handleImportBookFromUrl}
-      />
-      <ImportNovelDialog
-        isOpen={showImportNovel}
-        onClose={() => setShowImportNovel(false)}
-        onImport={handleImportNovelFile}
-      />
+      {showImportFromUrl && (
+        <ImportFromUrlDialog
+          isOpen={showImportFromUrl}
+          onClose={() => setShowImportFromUrl(false)}
+          onSubmit={handleImportBookFromUrl}
+        />
+      )}
+      {showImportNovel && (
+        <ImportNovelDialog
+          isOpen={showImportNovel}
+          onClose={() => setShowImportNovel(false)}
+          onImport={handleImportNovelFile}
+        />
+      )}
       <ClipSignInAlert />
       <Toast />
     </div>

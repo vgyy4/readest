@@ -11,7 +11,7 @@ import {
 } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '@/utils/supabase';
-import posthog from 'posthog-js';
+import { analytics } from '@/libs/analytics';
 import { clearProfileSession } from '@/libs/profiles/launch';
 
 interface AuthContextType {
@@ -49,7 +49,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         localStorage.setItem('token', access_token);
         localStorage.setItem('refresh_token', refresh_token);
         localStorage.setItem('user', JSON.stringify(user));
-        posthog.identify(user.id);
+        analytics.identify(user.id);
         setToken(access_token);
         setUser(user);
       } else {

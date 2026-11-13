@@ -10,7 +10,7 @@ import { getStyles } from '@/utils/style';
 import { getMaxInlineSize } from '@/utils/config';
 import { saveSysSettings, saveViewSettings } from '@/helpers/settings';
 import { PageTurnStyle } from '@/types/book';
-import { SettingsPanelPanelProp } from './SettingsDialog';
+import type { SettingsPanelPanelProp } from './SettingsDialog';
 import { annotationToolQuickActions } from '@/app/reader/components/annotator/AnnotationTools';
 import { applyPageTurnAttributes } from '@/app/reader/hooks/useCapturedTurn';
 import { isTauriAppPlatform } from '@/services/environment';

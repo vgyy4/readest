@@ -10,7 +10,7 @@ import { tauriHandleSetAlwaysOnTop, tauriHandleToggleFullScreen } from '@/utils/
 import { nextThemeMode } from '@/utils/ambientLight';
 import { setAboutDialogVisible } from '@/components/AboutWindow';
 import { saveSysSettings } from '@/helpers/settings';
-import { SettingsPanelType } from '@/components/settings/SettingsDialog';
+import type { SettingsPanelType } from '@/components/settings/SettingsDialog';
 import {
   CommandItem,
   buildCommandRegistry,

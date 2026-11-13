@@ -5,7 +5,7 @@ import { useSettingsStore } from '@/store/settingsStore';
 import { useResetViewSettings } from '@/hooks/useResetSettings';
 import { useTranslation } from '@/hooks/useTranslation';
 import { saveViewSettings } from '@/helpers/settings';
-import { SettingsPanelPanelProp } from './SettingsDialog';
+import type { SettingsPanelPanelProp } from './SettingsDialog';
 import {
   TTSHighlightGranularity,
   TTSMediaMetadataMode,

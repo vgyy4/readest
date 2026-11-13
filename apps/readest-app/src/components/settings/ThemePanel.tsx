@@ -24,7 +24,7 @@ import {
 } from '@/helpers/settings';
 import { useBackgroundTexture } from '@/hooks/useBackgroundTexture';
 import { manageSyntaxHighlighting } from '@/utils/highlightjs';
-import { SettingsPanelPanelProp } from './SettingsDialog';
+import type { SettingsPanelPanelProp } from './SettingsDialog';
 import { useFileSelector } from '@/hooks/useFileSelector';
 import { PREDEFINED_TEXTURES } from '@/styles/textures';
 import { useAtmosphereStore } from '@/store/atmosphereStore';
