@@ -1,4 +1,5 @@
 import { BookFormat } from '@/types/book';
+import { AUDIO_EXTS, AUDIO_MIMETYPES, audioFormatOf } from '@/libs/audiobook/formats';
 import { Collection, Contributor, Identifier, LanguageMap } from '@/utils/book';
 import { configureZip } from '@/utils/zip';
 import * as epubcfi from 'foliate-js/epubcfi.js';
@@ -137,6 +138,7 @@ export const EXTS: Record<BookFormat, string> = {
   FBZ: 'fbz',
   TXT: 'txt',
   MD: 'md',
+  ...AUDIO_EXTS,
 };
 
 export const MIMETYPES: Record<BookFormat, string[]> = {
@@ -150,6 +152,7 @@ export const MIMETYPES: Record<BookFormat, string[]> = {
   FBZ: ['application/x-zip-compressed-fb2', 'application/zip'],
   TXT: ['text/plain'],
   MD: ['text/markdown', 'text/x-markdown'],
+  ...AUDIO_MIMETYPES,
 };
 
 export interface DocumentLoaderOptions {
@@ -397,6 +400,12 @@ export class DocumentLoader {
       // Markdown is rendered to HTML at runtime (no EPUB conversion). Check
       // this BEFORE isTxt() — a .md served as text/plain would otherwise be
       // grabbed by the TXT->EPUB path above.
+      // Audio files are audiobooks: no text to lay out, a player instead of a reader.
+      const audioFormat = audioFormatOf(this.file.name, this.file.type);
+      if (audioFormat) {
+        const { makeAudioBook } = await import('@/libs/audiobook/bookDoc');
+        return { book: await makeAudioBook(this.file), format: audioFormat };
+      }
       if (this.isMd()) {
         const { makeMarkdownBook } = await import('@/utils/md');
         return { book: await makeMarkdownBook(this.file), format: 'MD' };

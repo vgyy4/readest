@@ -1,4 +1,5 @@
 import clsx from 'clsx';
+import { isAudioFormat } from '@/libs/audiobook/formats';
 import { useEffect, useState } from 'react';
 import { MdCheckCircle, MdCheckCircleOutline } from 'react-icons/md';
 import {
@@ -177,11 +178,11 @@ const BookItem: React.FC<BookItemProps> = ({
                 </div>
               </button>
             )}
-            {book.hasNarration && (
+            {(book.hasNarration || isAudioFormat(book.format)) && (
               <div
                 className='pt-[2px] sm:pt-[1px]'
-                title={_('Includes narration')}
-                aria-label={_('Includes narration')}
+                title={isAudioFormat(book.format) ? _('Audiobook') : _('Includes narration')}
+                aria-label={isAudioFormat(book.format) ? _('Audiobook') : _('Includes narration')}
               >
                 <LiaHeadphonesSolid size={iconSize15} />
               </div>

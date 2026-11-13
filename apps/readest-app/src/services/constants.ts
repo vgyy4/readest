@@ -61,6 +61,15 @@ export const SUPPORTED_BOOK_EXTS = [
   'pdf',
   'txt',
   'md',
+  // audiobooks
+  'm4b',
+  'm4a',
+  'mp3',
+  'aac',
+  'ogg',
+  'opus',
+  'flac',
+  'wav',
 ];
 export const BOOK_ACCEPT_FORMATS = SUPPORTED_BOOK_EXTS.map((ext) => `.${ext}`).join(', ');
 export const BOOK_UNGROUPED_NAME = '';

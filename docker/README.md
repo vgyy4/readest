@@ -189,6 +189,20 @@ The apps read the server addresses at build time. Build with
 server. The iOS workflow in this fork reads them from the repository variables
 `API_BASE_URL`, `SUPABASE_URL` and `SUPABASE_ANON_KEY` when they are set.
 
+## Audiobooks (this fork)
+
+Audio files import like books: m4b, m4a, mp3, aac, ogg, opus, flac and wav, one
+file per audiobook. Readest reads the title, author, cover art and chapters from
+the file's tags (m4b and ID3 chapters included) and opens it in a player instead
+of the reader: cover, chapter title, seek bar, previous/next chapter, back 10 s,
+play/pause, forward 30 s, speed, sleep timer (minutes or end of chapter) and the
+chapter list. The same player runs on Android, iOS and desktop, with lock screen
+and notification controls and background playback. Progress is kept per profile
+and synced like any book's (the position is stored in whole seconds).
+
+Not yet: audiobooks made of many files (join them into one m4b first), bookmarks,
+and streaming from a server (the file is stored on the device like any book).
+
 ## Database schema
 
 | path                          | role                                                                       |

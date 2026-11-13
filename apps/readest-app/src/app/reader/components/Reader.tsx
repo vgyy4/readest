@@ -31,6 +31,10 @@ import { Toast } from '@/components/Toast';
 import { getLocale } from '@/utils/misc';
 import { initDayjs } from '@/utils/time';
 import ReaderContent from './ReaderContent';
+import AudiobookPlayer from '@/components/audiobook/AudiobookPlayer';
+import { isAudioFormat } from '@/libs/audiobook/formats';
+import { useLibraryStore } from '@/store/libraryStore';
+import { usePathname, useSearchParams } from 'next/navigation';
 
 /*
 Z-Index Layering Guide:
@@ -55,6 +59,8 @@ Z-Index Layering Guide:
 
 const Reader: React.FC<{ ids?: string }> = ({ ids }) => {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
   const { appService } = useEnv();
   const { settings } = useSettingsStore();
   const { libraryLoaded } = useLibrary();
@@ -147,6 +153,26 @@ const Reader: React.FC<{ ids?: string }> = ({ ids }) => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hoveredBookKey]);
+
+  // An audiobook has no pages to lay out: its player takes the reader's place.
+  const firstBookId = (
+    ids ||
+    searchParams?.get('ids') ||
+    pathname?.split('/reader/')[1] ||
+    ''
+  ).split('+')[0];
+  const audiobook = useLibraryStore((state) =>
+    firstBookId ? state.getBookByHash(firstBookId) : undefined,
+  );
+
+  if (libraryLoaded && audiobook && isAudioFormat(audiobook.format)) {
+    return (
+      <div className='reader-page bg-base-100 text-base-content full-height select-none overflow-hidden'>
+        <AudiobookPlayer book={audiobook} onBack={() => router.back()} />
+        <Toast />
+      </div>
+    );
+  }
 
   return libraryLoaded && settings.globalReadSettings ? (
     <div
