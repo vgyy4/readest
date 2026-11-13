@@ -38,10 +38,13 @@ jobs:
           distribution: zulu
           java-version: '17'
 
-      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
-
+      # The runner image already ships the Android SDK; accept its licenses and
+      # add the NDK (the setup-android action trips over an obsolete package).
       - name: Install the NDK
-        run: sdkmanager "ndk;28.2.13676358"
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "ndk;28.2.13676358"
 
       - uses: dtolnay/rust-toolchain@stable
         with:
