@@ -129,3 +129,23 @@ describe('who may change which picture', () => {
     expect(resolveAvatarTarget({ ...asKid, requested: 'owner' })).toBeNull();
   });
 });
+
+describe('opening the app again after a long time away', () => {
+  it('asks who is reading after ten minutes, not after a short break', async () => {
+    const { AWAY_MS, shouldReturnToPicker } = await import('@/libs/profiles/launch');
+    expect(shouldReturnToPicker(AWAY_MS, state)).toBe(true);
+    expect(shouldReturnToPicker(AWAY_MS - 1, state)).toBe(false);
+    // An account without profiles has nothing to ask.
+    expect(shouldReturnToPicker(AWAY_MS * 5, { hasPin: false, profiles: [] })).toBe(false);
+    expect(shouldReturnToPicker(AWAY_MS * 5, null)).toBe(false);
+  });
+
+  it('Switch profile asks the screen to explain itself if there turns out to be nothing to pick', async () => {
+    const { consumeSwitchRequest } = await import('@/libs/profiles/launch');
+    vi.stubGlobal('location', { ...window.location, reload: vi.fn(), assign: vi.fn() });
+    expect(consumeSwitchRequest()).toBe(false);
+    leaveProfile();
+    expect(consumeSwitchRequest()).toBe(true);
+    expect(consumeSwitchRequest()).toBe(false); // only once
+  });
+});

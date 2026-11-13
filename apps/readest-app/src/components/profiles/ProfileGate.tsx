@@ -4,13 +4,17 @@ import React, { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { useTranslation } from '@/hooks/useTranslation';
+import { eventDispatcher } from '@/utils/event';
 import { getActiveProfileId, setActiveProfileId } from '@/libs/profiles/active';
 import { chooseAvatar, fetchProfiles, getCachedProfiles } from '@/libs/profiles/client';
 import type { ProfilesState } from '@/libs/profiles/cache';
 import {
   enterProfile,
+  consumeSwitchRequest,
   hasChosenProfile,
   hasProfiles,
+  leaveProfile,
+  shouldReturnToPicker,
   markAvatarSkipped,
   markProfileChosen,
   needsAvatar,
@@ -59,6 +63,19 @@ const ProfileGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           setState(next);
           setPhase('picker');
         } else {
+          // "Switch profile" with nothing to switch to: say why the screen did not appear.
+          if (consumeSwitchRequest()) {
+            // The toast listener lives on the library page, which mounts just after this.
+            window.setTimeout(() => {
+              void eventDispatcher.dispatch('toast', {
+                message: _(
+                  'This account has no profiles yet. Add one from the menu: Account, then Profiles.',
+                ),
+                type: 'info',
+                timeout: 5000,
+              });
+            }, 800);
+          }
           markProfileChosen();
           setPhase('pass');
         }
@@ -95,6 +112,21 @@ const ProfileGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     loadProfiles();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gated]);
+
+  // Pressing Home and coming back much later is opening the app again: ask who is reading.
+  useEffect(() => {
+    if (!gated || phase !== 'pass') return;
+    let hiddenAt = 0;
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAt = Date.now();
+      } else if (hiddenAt && shouldReturnToPicker(Date.now() - hiddenAt, getCachedProfiles())) {
+        leaveProfile();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [gated, phase]);
 
   if (!gated || phase === 'pass') return <>{children}</>;
 

@@ -184,3 +184,24 @@ describe('ProfileGate when the server cannot list the profiles', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 });
+
+describe('ProfileGate and an account with no profiles', () => {
+  it('explains why Switch profile showed nothing', async () => {
+    const { leaveProfile } = await import('@/libs/profiles/launch');
+    const { eventDispatcher } = await import('@/utils/event');
+    const toast = vi.spyOn(eventDispatcher, 'dispatch').mockResolvedValue(undefined as never);
+    vi.stubGlobal('location', { ...window.location, reload: vi.fn(), assign: vi.fn() });
+    leaveProfile(); // sets the request flag; the reload is a stub
+    mocks.fetchProfiles.mockResolvedValue({ hasPin: false, profiles: [] });
+    renderGate();
+    expect(await screen.findByText('the library')).toBeTruthy();
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith(
+        'toast',
+        expect.objectContaining({ message: expect.stringContaining('no profiles yet') }),
+      ),
+    );
+    toast.mockRestore();
+    vi.unstubAllGlobals();
+  });
+});

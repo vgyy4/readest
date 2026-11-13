@@ -49,12 +49,30 @@ export const enterProfile = (profileId: string | null) => {
   markProfileChosen();
 };
 
+const SWITCH_KEY = 'readest-profile-switch-requested';
+
+/** Was the profile screen asked for by "Switch profile" (so an empty list deserves an explanation)? */
+export const consumeSwitchRequest = () => {
+  const requested = session()?.getItem(SWITCH_KEY) === '1';
+  session()?.removeItem(SWITCH_KEY);
+  return requested;
+};
+
 /** "Switch profile": leave the current profile and show the profile screen again. */
 export const leaveProfile = () => {
   session()?.removeItem(CHOSEN_KEY);
+  session()?.setItem(SWITCH_KEY, '1');
   setActiveProfileId(null);
   window.location.reload();
+  // Some web views ignore reload(); navigating to the same address does the same job.
+  window.setTimeout(() => window.location.assign(window.location.href), 1500);
 };
+
+/** Coming back to the app after this long counts as opening it again: ask who is reading. */
+export const AWAY_MS = 10 * 60 * 1000;
+
+export const shouldReturnToPicker = (awayMs: number, state: ProfilesState | null | undefined) =>
+  awayMs >= AWAY_MS && hasProfiles(state);
 
 /** On sign-out: nothing of this account's profiles should linger for the next one. */
 export const clearProfileSession = () => {
