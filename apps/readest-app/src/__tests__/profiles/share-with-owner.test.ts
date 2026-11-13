@@ -7,6 +7,7 @@ type Row = Record<string, unknown>;
 const fakeAdmin = (initial: Row[]) => {
   const rows = [...initial];
   const upserts: Row[][] = [];
+  const updates: { values: Row; count: number }[] = [];
   const admin = {
     from: (table: string) => {
       if (table !== 'books') throw new Error(`unexpected table ${table}`);
@@ -20,8 +21,20 @@ const fakeAdmin = (initial: Row[]) => {
       builder['eq'] = (col: string, v: unknown) => add((r) => r[col] === v);
       builder['in'] = (col: string, vs: unknown[]) => add((r) => vs.includes(r[col]));
       builder['is'] = (col: string, v: unknown) => add((r) => (r[col] ?? null) === v);
-      builder['then'] = (resolve: (v: unknown) => unknown) =>
-        resolve({ data: rows.filter((r) => filters.every((f) => f(r))), error: null });
+      let pending: Row | null = null;
+      builder['update'] = (values: Row) => {
+        pending = values;
+        return builder;
+      };
+      builder['then'] = (resolve: (v: unknown) => unknown) => {
+        const matching = rows.filter((r) => filters.every((f) => f(r)));
+        if (pending) {
+          updates.push({ values: pending, count: matching.length });
+          for (const row of matching) Object.assign(row, pending);
+          return resolve({ data: null, error: null });
+        }
+        return resolve({ data: matching, error: null });
+      };
       builder['upsert'] = async (batch: Row[]) => {
         upserts.push(batch);
         rows.push(...batch);
@@ -30,7 +43,7 @@ const fakeAdmin = (initial: Row[]) => {
       return builder;
     },
   };
-  return { admin: admin as never, rows, upserts };
+  return { admin: admin as never, rows, upserts, updates };
 };
 
 const book = (user: string, hash: string, extra: Row = {}): Row => ({
@@ -102,5 +115,55 @@ describe('shareNewBooksWithOwner', () => {
     const { admin, upserts } = fakeAdmin([]);
     expect(await shareNewBooksWithOwner(admin, 'owner', 'kid', [])).toBe(0);
     expect(upserts).toHaveLength(0);
+  });
+});
+
+describe('shareNewBooksWithOwner: the file arriving after the book', () => {
+  const later = '2022-02-02T00:00:00.000Z';
+
+  it("tells the admin's copy once the profile's upload has finished, so the admin can download it", async () => {
+    const { admin, rows } = fakeAdmin([
+      book('kid', 'h1', { uploaded_at: later }),
+      book('owner', 'h1', { uploaded_at: null }),
+    ]);
+    await shareNewBooksWithOwner(admin, 'owner', 'kid', ['h1']);
+    const owner = rows.find((r) => r['user_id'] === 'owner')!;
+    expect(owner['uploaded_at']).toBe(later);
+    expect(new Date(owner['updated_at'] as string).getTime()).toBeGreaterThan(Date.now() - 60_000);
+  });
+
+  it('copies the upload mark along with a new book that is already uploaded', async () => {
+    const { admin, rows } = fakeAdmin([book('kid', 'h1', { uploaded_at: later })]);
+    await shareNewBooksWithOwner(admin, 'owner', 'kid', ['h1']);
+    expect(rows.find((r) => r['user_id'] === 'owner')?.['uploaded_at']).toBe(later);
+  });
+
+  it("leaves an upload mark the admin's copy already has", async () => {
+    const earlier = '2021-01-01T00:00:00.000Z';
+    const { admin, rows, updates } = fakeAdmin([
+      book('kid', 'h1', { uploaded_at: later }),
+      book('owner', 'h1', { uploaded_at: earlier }),
+    ]);
+    await shareNewBooksWithOwner(admin, 'owner', 'kid', ['h1']);
+    expect(updates).toHaveLength(0);
+    expect(rows.find((r) => r['user_id'] === 'owner')?.['uploaded_at']).toBe(earlier);
+  });
+
+  it('does nothing while the profile has not uploaded yet', async () => {
+    const { admin, updates } = fakeAdmin([
+      book('kid', 'h1', { uploaded_at: null }),
+      book('owner', 'h1', { uploaded_at: null }),
+    ]);
+    await shareNewBooksWithOwner(admin, 'owner', 'kid', ['h1']);
+    expect(updates).toHaveLength(0);
+  });
+
+  it('does not touch a copy the admin removed', async () => {
+    const { admin, updates } = fakeAdmin([
+      book('kid', 'h1', { uploaded_at: later }),
+      book('owner', 'h1', { uploaded_at: null, deleted_at: '2021-01-01T00:00:00.000Z' }),
+    ]);
+    await shareNewBooksWithOwner(admin, 'owner', 'kid', ['h1']);
+    expect(updates).toHaveLength(0);
   });
 });
