@@ -21,6 +21,7 @@ import { setBackupDialogVisible } from '@/app/library/components/BackupWindow';
 import { setCacheManagerDialogVisible } from '@/app/library/components/CacheManagerWindow';
 import { useAuth } from '@/context/AuthContext';
 import { eventDispatcher } from '@/utils/event';
+import BuildBadge from '@/components/BuildBadge';
 import { getCachedProfiles } from '@/libs/profiles/cache';
 import { hasProfiles, isInsideProfile, leaveProfile } from '@/libs/profiles/launch';
 import { useEnv } from '@/context/EnvContext';
@@ -534,6 +535,7 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
       )}
       {isWebAppPlatform() && <MenuItem label={_('Download Readest')} onClick={downloadReadest} />}
       <MenuItem label={_('About Readest')} onClick={showAboutReadest} />
+      <BuildBadge />
     </Menu>
   );
 };

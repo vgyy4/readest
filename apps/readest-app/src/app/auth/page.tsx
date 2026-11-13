@@ -26,6 +26,7 @@ import WindowButtons from '@/components/WindowButtons';
 import type { OAuthProvider } from './components/ProviderLogin';
 import AuthPanel from './components/AuthPanel';
 import ServerSettings from './components/ServerSettings';
+import BuildBadge from '@/components/BuildBadge';
 
 interface SingleInstancePayload {
   args: string[];
@@ -337,6 +338,7 @@ export default function AuthPage() {
             appService?.hasTrafficLight ? 'mt-24' : 'mt-16',
           )}
         >
+          <BuildBadge large />
           <AuthPanel
             supabaseClient={supabase}
             magicLink={true}

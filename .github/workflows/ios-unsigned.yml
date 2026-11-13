@@ -57,6 +57,10 @@ jobs:
       # Build against your own server instead of the default one. All three are
       # repository variables (Settings > Secrets and variables > Actions >
       # Variables); the anon key is public by design.
+      # Name the build in the app (sign-in and profile screens), so a device's version is obvious.
+      - name: Label the build
+        run: echo "NEXT_PUBLIC_BUILD_LABEL=${GITHUB_SHA::7}, run ${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+
       - name: Point the app at a custom server
         if: ${{ vars.API_BASE_URL != '' }}
         run: |

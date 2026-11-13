@@ -5,6 +5,7 @@ import PinInput from '@/components/PinInput';
 import { useTranslation } from '@/hooks/useTranslation';
 import { setSessionPin } from '@/libs/profiles/session';
 import { verifyProfilePin, type ProfilesState } from '@/libs/profiles/client';
+import BuildBadge from '@/components/BuildBadge';
 import ProfileAvatar from './ProfileAvatar';
 
 interface ProfilePickerProps {
@@ -144,6 +145,7 @@ const ProfilePicker: React.FC<ProfilePickerProps> = ({ state, onEnter }) => {
           </ul>
         </div>
       )}
+      <BuildBadge />
     </div>
   );
 };
