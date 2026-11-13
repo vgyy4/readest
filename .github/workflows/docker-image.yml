@@ -5,6 +5,12 @@ on:
   push:
     branches:
       - main
+      - ccr-03f565fc-tppj75
+    # On the fork's branch only when the image's own definition changes; start
+    # other builds by hand (Actions > Run workflow).
+    paths:
+      - Dockerfile
+      - .github/workflows/docker-image.yml
   release:
     types:
       - published
