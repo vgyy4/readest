@@ -78,6 +78,19 @@ jobs:
           git checkout -- .
           ls src-tauri/gen/apple/Readest_iOS
 
+      # The project hard-codes a signing team on each target, which outranks any
+      # xcconfig override, so switch signing off in the project itself (the app,
+      # the share extension and the widget). Sideloadly re-signs the result.
+      - name: Turn off code signing in the project
+        working-directory: apps/readest-app/src-tauri/gen/apple
+        run: |
+          sed -i '' \
+            -e 's/DEVELOPMENT_TEAM = [A-Z0-9]*;/DEVELOPMENT_TEAM = ""; CODE_SIGNING_ALLOWED = NO; CODE_SIGNING_REQUIRED = NO;/' \
+            -e 's/CODE_SIGN_IDENTITY = "iPhone Developer";/CODE_SIGN_IDENTITY = "";/' \
+            -e 's/DevelopmentTeam = [A-Z0-9]*;/DevelopmentTeam = "";/' \
+            Readest.xcodeproj/project.pbxproj
+          grep -c 'CODE_SIGNING_ALLOWED = NO' Readest.xcodeproj/project.pbxproj
+
       - name: Build iOS app
         working-directory: apps/readest-app
         env:
