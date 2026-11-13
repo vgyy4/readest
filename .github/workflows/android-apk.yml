@@ -1,0 +1,117 @@
+name: Android APK
+
+# Builds an installable Readest APK (arm64 plus a universal one) signed with a
+# key that stays the same between builds when ANDROID_KEY_BASE64 / ANDROID_KEY_ALIAS
+# / ANDROID_KEY_PASSWORD are set as repository secrets, and otherwise with a
+# throwaway key (fine to try, but each such build must be uninstalled first).
+on:
+  workflow_dispatch:
+  # Runs when this file changes; start it again by hand (Actions > Run workflow).
+  push:
+    branches: [ccr-03f565fc-tppj75]
+    paths: ['.github/workflows/android-apk.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout submodules (skip the unrelated gstack one)
+        run: |
+          git config submodule.apps/readest-app/.claude/skills/gstack.update none
+          git submodule update --init --recursive --depth 1 || git submodule update --init --recursive
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install the NDK
+        run: sdkmanager "ndk;28.2.13676358"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: android-apk
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline && pnpm --filter @readest/readest-app setup-vendors
+
+      # Build against your own server instead of the default one (repository
+      # variables; the anon key is public by design).
+      - name: Point the app at a custom server
+        if: ${{ vars.API_BASE_URL != '' }}
+        run: |
+          echo "NEXT_PUBLIC_API_BASE_URL=${{ vars.API_BASE_URL }}" >> "$GITHUB_ENV"
+          echo "NEXT_PUBLIC_SUPABASE_URL=${{ vars.SUPABASE_URL }}" >> "$GITHUB_ENV"
+          echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ vars.SUPABASE_ANON_KEY }}" >> "$GITHUB_ENV"
+
+      - name: Generate the Android project
+        working-directory: apps/readest-app
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+        run: |
+          rm -rf src-tauri/gen/android
+          pnpm tauri android init --ci
+          pnpm tauri icon ../../data/icons/readest-book.png
+          git checkout .
+
+      - name: Set up signing
+        working-directory: apps/readest-app/src-tauri/gen/android
+        env:
+          KEY_BASE64: ${{ secrets.ANDROID_KEY_BASE64 }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEY_BASE64" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASSWORD" ]; then
+            echo "Using the key from the repository secrets"
+            base64 -d <<< "$KEY_BASE64" > "$RUNNER_TEMP/keystore.jks"
+          else
+            echo "No signing secrets: generating a throwaway key"
+            KEY_ALIAS=readest
+            KEY_PASSWORD=$(openssl rand -hex 16)
+            keytool -genkeypair -keystore "$RUNNER_TEMP/keystore.jks" -alias "$KEY_ALIAS" \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass "$KEY_PASSWORD" -keypass "$KEY_PASSWORD" -dname "CN=Readest fork"
+          fi
+          {
+            echo "keyAlias=$KEY_ALIAS"
+            echo "password=$KEY_PASSWORD"
+            echo "storeFile=$RUNNER_TEMP/keystore.jks"
+          } > keystore.properties
+
+      - name: Build the APKs
+        working-directory: apps/readest-app
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: |
+          apk_path=src-tauri/gen/android/app/build/outputs/apk/universal/release
+          pnpm tauri android build
+          cp "$apk_path/app-universal-release.apk" Readest_universal.apk
+          pnpm tauri android build -t aarch64
+          cp "$apk_path/app-universal-release.apk" Readest_arm64.apk
+          ls -lh Readest_*.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Readest-android-apks
+          path: apps/readest-app/Readest_*.apk
+          if-no-files-found: error

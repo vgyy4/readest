@@ -4,8 +4,10 @@ name: iOS unsigned IPA
 # with your own Apple ID). Minimum iOS is 15.0 on this branch.
 on:
   workflow_dispatch:
+  # Runs when this file changes; start the others by hand (Actions > Run workflow).
   push:
     branches: [ccr-03f565fc-tppj75]
+    paths: ['.github/workflows/ios-unsigned.yml']
 
 permissions:
   contents: read
@@ -26,7 +28,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -61,6 +63,18 @@ jobs:
           echo "NEXT_PUBLIC_API_BASE_URL=${{ vars.API_BASE_URL }}" >> "$GITHUB_ENV"
           echo "NEXT_PUBLIC_SUPABASE_URL=${{ vars.SUPABASE_URL }}" >> "$GITHUB_ENV"
           echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ vars.SUPABASE_ANON_KEY }}" >> "$GITHUB_ENV"
+
+      # src-tauri/gen is generated, and only some of its files are tracked: the
+      # Info.plist, asset catalog and Swift sources come from `tauri ios init`.
+      # Restore the tracked ones afterwards so the repo's extensions, entitlements
+      # and project settings win, as the Android release job does.
+      - name: Generate the iOS project files
+        working-directory: apps/readest-app
+        run: |
+          brew install xcodegen
+          pnpm tauri ios init --ci
+          git checkout -- .
+          ls src-tauri/gen/apple/Readest_iOS
 
       - name: Build iOS app
         working-directory: apps/readest-app

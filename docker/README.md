@@ -156,8 +156,11 @@ Server requirements:
 - Apply `volumes/db/migrations/019_profiles.sql` and `020_profile_pins.sql` (the
   migration runner does it on first boot, or run `zz-readest-migrations.sh` by
   hand when upgrading).
-- The client must be built from this fork (`compose.build.yaml`), not the
-  upstream `ghcr.io/readest/readest` image: the profile API routes live in the
+- The client must be built from this fork, not the upstream
+  `ghcr.io/readest/readest` image. The fork's `Publish Docker image` workflow
+  (run it from Actions on this branch) publishes `ghcr.io/<you>/readest:profiles`;
+  set `READEST_IMAGE` to that in `docker/.env` (make the package public, or
+  `docker login ghcr.io`), or build locally with `compose.build.yaml`. Why: the profile API routes live in the
   app, and they use `SUPABASE_ADMIN_KEY` (the service role key, already passed
   by `compose.yaml`) to create and read the profiles' users.
 
