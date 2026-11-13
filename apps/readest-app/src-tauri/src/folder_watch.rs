@@ -4,7 +4,7 @@
 //! folders when told, and also when it starts and comes back to the front.
 
 #[cfg(not(target_os = "ios"))]
-mod core {
+mod watcher {
     use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
     use std::path::PathBuf;
     use std::sync::mpsc::{self, RecvTimeoutError, Sender};
@@ -104,50 +104,55 @@ mod core {
 }
 
 #[cfg(not(target_os = "ios"))]
-mod command {
-    use super::core::{watch, FolderWatch};
-    use std::path::PathBuf;
-    use std::sync::Mutex;
-    use std::time::Duration;
-    use tauri::{command, AppHandle, Emitter};
+use std::path::PathBuf;
+#[cfg(not(target_os = "ios"))]
+use std::sync::Mutex;
+#[cfg(not(target_os = "ios"))]
+use std::time::Duration;
+#[cfg(not(target_os = "ios"))]
+use tauri::{AppHandle, Emitter};
+#[cfg(not(target_os = "ios"))]
+use watcher::{watch, FolderWatch};
 
-    /// A book being copied in raises events until it is complete; scan after this much quiet.
-    const QUIET: Duration = Duration::from_millis(2000);
-
-    static ACTIVE: Mutex<Option<FolderWatch>> = Mutex::new(None);
-
-    /// Watch exactly these folders (an empty list stops watching). Each change, once things go
-    /// quiet, is announced to the web view as the `watched-folders-changed` event.
-    #[command]
-    pub fn watch_folders(app: AppHandle, paths: Vec<String>) -> Result<(), String> {
-        let mut active = ACTIVE
-            .lock()
-            .map_err(|_| "watcher lock poisoned".to_string())?;
-        // Stop the old watch first, so folders the user removed stop being watched.
-        *active = None;
-        let mut folders = Vec::new();
-        for path in paths {
-            crate::transfer_file::ensure_path_allowed(&app, &path).map_err(|e| e.to_string())?;
-            let folder = PathBuf::from(&path);
-            if folder.is_dir() {
-                folders.push(folder);
-            }
-        }
-        if folders.is_empty() {
-            return Ok(());
-        }
-        let handle = app.clone();
-        let started = watch(&folders, QUIET, move || {
-            let _ = handle.emit("watched-folders-changed", ());
-        })
-        .map_err(|e| e.to_string())?;
-        *active = Some(started);
-        Ok(())
-    }
-}
+/// A book being copied in raises events until it is complete; scan after this much quiet.
+#[cfg(not(target_os = "ios"))]
+const QUIET: Duration = Duration::from_millis(2000);
 
 #[cfg(not(target_os = "ios"))]
-pub use command::watch_folders;
+static ACTIVE: Mutex<Option<FolderWatch>> = Mutex::new(None);
+
+/// Watch exactly these folders (an empty list stops watching). Each change, once things go
+/// quiet, is announced to the web view as the `watched-folders-changed` event.
+///
+/// The command lives at the top of this module, not in a nested one: `#[tauri::command]` writes
+/// helper items next to the function, and `generate_handler!` looks for them in this module.
+#[cfg(not(target_os = "ios"))]
+#[tauri::command]
+pub fn watch_folders(app: AppHandle, paths: Vec<String>) -> Result<(), String> {
+    let mut active = ACTIVE
+        .lock()
+        .map_err(|_| "watcher lock poisoned".to_string())?;
+    // Stop the old watch first, so folders the user removed stop being watched.
+    *active = None;
+    let mut folders = Vec::new();
+    for path in paths {
+        crate::transfer_file::ensure_path_allowed(&app, &path).map_err(|e| e.to_string())?;
+        let folder = PathBuf::from(&path);
+        if folder.is_dir() {
+            folders.push(folder);
+        }
+    }
+    if folders.is_empty() {
+        return Ok(());
+    }
+    let handle = app.clone();
+    let started = watch(&folders, QUIET, move || {
+        let _ = handle.emit("watched-folders-changed", ());
+    })
+    .map_err(|e| e.to_string())?;
+    *active = Some(started);
+    Ok(())
+}
 
 /// iOS keeps apps inside their sandbox and has no folder change notifications for them: the app
 /// scans when it starts and comes back to the front instead.
@@ -159,7 +164,7 @@ pub fn watch_folders(_paths: Vec<String>) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::core::watch;
+    use super::watcher::watch;
     use std::fs;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicUsize, Ordering};
