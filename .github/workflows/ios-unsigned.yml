@@ -76,6 +76,28 @@ jobs:
           rm -rf src-tauri/gen/apple
           pnpm tauri ios init --ci
           git checkout -- .
+          # Write the app icon from the repo's own icon set, so it never depends on
+          # what the init template put in the asset catalog.
+          python3 - <<'PY'
+          import json, os, shutil
+          src = 'src-tauri/icons/ios'
+          dst = 'src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset'
+          shutil.rmtree(dst, ignore_errors=True)
+          os.makedirs(dst)
+          os.makedirs('src-tauri/gen/apple/Assets.xcassets', exist_ok=True)
+          json.dump({'info': {'version': 1, 'author': 'xcode'}}, open('src-tauri/gen/apple/Assets.xcassets/Contents.json', 'w'))
+          images = []
+          def add(idiom, size, scale, name):
+              shutil.copy(os.path.join(src, name), os.path.join(dst, name))
+              images.append({'idiom': idiom, 'size': size, 'scale': scale, 'filename': name})
+          for size, scale, name in [('20x20','2x','AppIcon-20x20@2x.png'),('20x20','3x','AppIcon-20x20@3x.png'),('29x29','2x','AppIcon-29x29@2x.png'),('29x29','3x','AppIcon-29x29@3x.png'),('40x40','2x','AppIcon-40x40@2x.png'),('40x40','3x','AppIcon-40x40@3x.png'),('60x60','2x','AppIcon-60x60@2x.png'),('60x60','3x','AppIcon-60x60@3x.png')]:
+              add('iphone', size, scale, name)
+          for size, scale, name in [('20x20','1x','AppIcon-20x20@1x.png'),('20x20','2x','AppIcon-20x20@2x-1.png'),('29x29','1x','AppIcon-29x29@1x.png'),('29x29','2x','AppIcon-29x29@2x-1.png'),('40x40','1x','AppIcon-40x40@1x.png'),('40x40','2x','AppIcon-40x40@2x-1.png'),('76x76','1x','AppIcon-76x76@1x.png'),('76x76','2x','AppIcon-76x76@2x.png'),('83.5x83.5','2x','AppIcon-83.5x83.5@2x.png')]:
+              add('ipad', size, scale, name)
+          add('ios-marketing', '1024x1024', '1x', 'AppIcon-512@2x.png')
+          json.dump({'images': images, 'info': {'version': 1, 'author': 'xcode'}}, open(os.path.join(dst, 'Contents.json'), 'w'), indent=2)
+          print('app icon files:', len(images))
+          PY
           # Regenerate from the repo's own project.yml: that is what writes the
           # widget's Info.plist (declared there, not tracked).
           (cd src-tauri/gen/apple && xcodegen generate)

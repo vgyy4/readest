@@ -9,6 +9,7 @@ import type { BaseDir } from '@/types/system';
 import { withReadingStatus } from '@/app/library/utils/libraryUtils';
 import { parseAudiobook } from '@/libs/audiobook/metadata';
 import { createAudiobookSession } from '@/libs/audiobook/session';
+import { audioMimeType, blobFromFile, describeMediaError } from '@/libs/audiobook/source';
 import { CoverColor, sampleCoverColor } from '@/libs/audiobook/palette';
 import {
   AudioChapter,
@@ -84,6 +85,9 @@ export const useAudiobook = (book: Book) => {
   const lastSaved = useRef({ config: 0, library: 0 });
   const chaptersRef = useRef<AudioChapter[]>([]);
   chaptersRef.current = chapters;
+  const sourceRef = useRef<{ path: string; base: BaseDir } | null>(null);
+  const blobUrlRef = useRef('');
+  const triedBlob = useRef(false);
   const sessionRef = useRef<ReturnType<typeof createAudiobookSession> | null>(null);
 
   const persist = useCallback(
@@ -143,11 +147,25 @@ export const useAudiobook = (book: Book) => {
         const file = await appService.openFile(path, base);
         const info = await parseAudiobook(file);
         (file as { close?: () => Promise<void> }).close?.();
-        // Native: a streaming asset URL (the file is never loaded into memory).
-        const url =
-          appService.appPlatform === 'tauri'
-            ? await appService.getImageURL(await appService.resolveFilePath(path, base))
-            : URL.createObjectURL(file);
+        const mime = audioMimeType(book.format);
+        const sourceFile = { path, base };
+        sourceRef.current = sourceFile;
+        // Android and desktop stream the file through an asset URL (it is never loaded into
+        // memory). iOS cannot play media from that URL, so it gets a typed blob instead, and
+        // any platform falls back to one if the asset URL does not play (see onError).
+        let url: string;
+        if (appService.appPlatform === 'tauri' && !appService.isIOSApp) {
+          url = await appService.getImageURL(await appService.resolveFilePath(path, base));
+        } else {
+          const whole = await appService.openFile(path, base);
+          url = URL.createObjectURL(
+            appService.appPlatform === 'tauri'
+              ? await blobFromFile(whole, mime)
+              : new Blob([whole], { type: mime }),
+          );
+          blobUrlRef.current = url;
+          (whole as { close?: () => Promise<void> }).close?.();
+        }
         const config = await appService.loadBookConfig(book, settings);
         if (cancelled) return;
         // The embedded cover is same-origin, so its colors can be read.
@@ -168,6 +186,8 @@ export const useAudiobook = (book: Book) => {
     return () => {
       cancelled = true;
       if (coverObjectUrl) URL.revokeObjectURL(coverObjectUrl);
+      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+      blobUrlRef.current = '';
     };
     // The book's file does not change while the player is open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -425,7 +445,28 @@ export const useAudiobook = (book: Book) => {
       latest.current.position = latest.current.duration;
       void persist(true);
     },
-    onError: () => setError('This audio file could not be played.'),
+    onError: () => {
+      const audio = audioRef.current;
+      const source = sourceRef.current;
+      // The asset URL did not play: read the file into a typed blob and try that once.
+      if (appService && source && !triedBlob.current && !blobUrlRef.current) {
+        triedBlob.current = true;
+        void (async () => {
+          try {
+            const whole = await appService.openFile(source.path, source.base);
+            const url = URL.createObjectURL(await blobFromFile(whole, audioMimeType(book.format)));
+            blobUrlRef.current = url;
+            (whole as { close?: () => Promise<void> }).close?.();
+            resume.current = latest.current.position;
+            setSrc(url);
+          } catch {
+            setError(describeMediaError(audio?.error?.code));
+          }
+        })();
+        return;
+      }
+      setError(describeMediaError(audio?.error?.code));
+    },
   };
 
   const chapterIndex = chapterIndexAt(chapters, position);

@@ -177,20 +177,34 @@ html[data-ui-style='material']:not([data-eink='true']) .toast .alert {
 
 /* ---- Liquid glass: frosted translucent surfaces with a bright rim ---- */
 html[data-ui-style='glass'] {
-  --glass-bg: rgba(255, 255, 255, 0.58);
-  --glass-bg-strong: rgba(255, 255, 255, 0.74);
-  --glass-tint: rgba(255, 255, 255, 0.34);
-  --glass-border: rgba(255, 255, 255, 0.6);
-  --glass-rim: rgba(255, 255, 255, 0.55);
-  --glass-shadow: 0 10px 34px rgba(24, 32, 90, 0.2);
+  --glass-bg: rgba(255, 255, 255, 0.46);
+  --glass-bg-strong: rgba(255, 255, 255, 0.66);
+  --glass-tint: rgba(255, 255, 255, 0.28);
+  --glass-border: rgba(255, 255, 255, 0.7);
+  --glass-rim: rgba(255, 255, 255, 0.85);
+  --glass-specular: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.5) 0%,
+    rgba(255, 255, 255, 0.08) 38%,
+    rgba(255, 255, 255, 0) 62%,
+    rgba(255, 255, 255, 0.18) 100%
+  );
+  --glass-shadow: 0 12px 40px rgba(20, 28, 80, 0.22);
 }
 html[data-theme$='-dark'][data-ui-style='glass'] {
-  --glass-bg: rgba(38, 40, 52, 0.55);
-  --glass-bg-strong: rgba(38, 40, 52, 0.72);
+  --glass-bg: rgba(40, 44, 60, 0.42);
+  --glass-bg-strong: rgba(34, 38, 54, 0.7);
   --glass-tint: rgba(255, 255, 255, 0.1);
-  --glass-border: rgba(255, 255, 255, 0.16);
-  --glass-rim: rgba(255, 255, 255, 0.22);
-  --glass-shadow: 0 10px 34px rgba(0, 0, 0, 0.45);
+  --glass-border: rgba(255, 255, 255, 0.2);
+  --glass-rim: rgba(255, 255, 255, 0.34);
+  --glass-specular: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.2) 0%,
+    rgba(255, 255, 255, 0.03) 40%,
+    rgba(255, 255, 255, 0) 62%,
+    rgba(255, 255, 255, 0.07) 100%
+  );
+  --glass-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
 }
 html[data-ui-style='glass']:not([data-eink='true']) .modal-box,
 html[data-ui-style='glass']:not([data-eink='true']) .menu-container,
@@ -202,16 +216,18 @@ html[data-ui-style='glass']:not([data-eink='true']) .toast .alert,
 html[data-ui-style='glass']:not([data-eink='true']) .sidebar-container,
 html[data-ui-style='glass']:not([data-eink='true']) .notebook-container {
   background-color: var(--glass-bg);
-  background-image: none;
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  backdrop-filter: blur(24px) saturate(180%);
+  background-image: var(--glass-specular);
+  -webkit-backdrop-filter: blur(22px) saturate(190%);
+  backdrop-filter: blur(22px) saturate(190%);
   border: 1px solid var(--glass-border);
   box-shadow:
     var(--glass-shadow),
-    inset 0 1px 0 var(--glass-rim);
+    inset 0 1px 1px var(--glass-rim),
+    inset 0 -1px 1px rgba(255, 255, 255, 0.12);
 }
 html[data-ui-style='glass']:not([data-eink='true']) .modal-box {
   background-color: var(--glass-bg-strong);
+  border-radius: 32px;
 }
 html[data-ui-style='glass']:not([data-eink='true']) .sidebar-container,
 html[data-ui-style='glass']:not([data-eink='true']) .notebook-container {
@@ -244,8 +260,11 @@ html[data-ui-style='glass']:not([data-eink='true'])
     .btn-contrast
   ):not(.btn-disabled):not(.btn-circle) {
   background-color: var(--glass-tint);
+  background-image: var(--glass-specular);
   border: 1px solid var(--glass-border);
-  box-shadow: inset 0 1px 0 var(--glass-rim);
+  box-shadow:
+    inset 0 1px 1px var(--glass-rim),
+    0 4px 14px rgba(20, 28, 80, 0.12);
   -webkit-backdrop-filter: blur(14px);
   backdrop-filter: blur(14px);
   color: theme('colors.base-content');
@@ -281,9 +300,9 @@ html[data-ui-style='glass']:not([data-eink='true']) .library-page {
 @supports (color: oklch(0 0 0)) {
   html[data-ui-style='glass']:not([data-eink='true']) .library-page {
     background-image:
-      radial-gradient(60% 38% at 12% 6%, theme('colors.primary / 34%'), transparent),
-      radial-gradient(52% 40% at 92% 28%, theme('colors.secondary / 30%'), transparent),
-      radial-gradient(70% 40% at 45% 100%, theme('colors.accent / 28%'), transparent);
+      radial-gradient(60% 38% at 12% 6%, theme('colors.primary / 55%'), transparent),
+      radial-gradient(52% 40% at 92% 28%, theme('colors.secondary / 48%'), transparent),
+      radial-gradient(70% 40% at 45% 100%, theme('colors.accent / 45%'), transparent);
     background-attachment: fixed;
   }
 }
@@ -300,6 +319,53 @@ html[data-ui-style='glass']:not([data-eink='true']) .library-page {
   html[data-ui-style='glass']:not([data-eink='true']) .notebook-container {
     background-color: theme('colors.base-100');
   }
+}
+
+/* ---- Low-end devices (data-perf='low': iOS 15 and older, 2 GB RAM): no blur, no big shadows ---- */
+html[data-perf='low'] {
+  --glass-bg: rgba(255, 255, 255, 0.9);
+  --glass-bg-strong: rgba(255, 255, 255, 0.96);
+}
+html[data-perf='low'][data-theme$='-dark'] {
+  --glass-bg: rgba(40, 44, 60, 0.92);
+  --glass-bg-strong: rgba(34, 38, 54, 0.97);
+}
+html[data-ui-style='glass']:not([data-eink='true'])[data-perf='low'] [data-surface],
+html[data-ui-style='glass']:not([data-eink='true'])[data-perf='low'] .modal-box,
+html[data-ui-style='glass']:not([data-eink='true'])[data-perf='low'] .menu-container,
+html[data-ui-style='glass']:not([data-eink='true'])[data-perf='low'] .dropdown-content,
+html[data-ui-style='glass']:not([data-eink='true'])[data-perf='low'] .popup-container,
+html[data-ui-style='glass']:not([data-eink='true'])[data-perf='low'] .footer-bar,
+html[data-ui-style='glass']:not([data-eink='true'])[data-perf='low'] .now-playing-pill,
+html[data-ui-style='glass']:not([data-eink='true'])[data-perf='low'] .toast .alert,
+html[data-ui-style='glass']:not([data-eink='true'])[data-perf='low'] .sidebar-container,
+html[data-ui-style='glass']:not([data-eink='true'])[data-perf='low'] .notebook-container,
+html[data-ui-style='glass']:not([data-eink='true'])[data-perf='low']
+  .btn:not(.btn-primary):not(.btn-secondary):not(.btn-accent):not(.btn-neutral):not(.btn-info):not(
+    .btn-success
+  ):not(.btn-warning):not(.btn-error):not(.btn-ghost):not(.btn-link):not(.btn-outline):not(
+    .btn-contrast
+  ):not(.btn-disabled):not(.btn-circle),
+html[data-ui-style='glass']:not([data-eink='true'])[data-perf='low'] .input,
+html[data-ui-style='glass']:not([data-eink='true'])[data-perf='low'] .select,
+html[data-ui-style='glass']:not([data-eink='true'])[data-perf='low'] .textarea,
+html[data-ui-style='glass']:not([data-eink='true'])[data-perf='low'] .card,
+html[data-ui-style='glass']:not([data-eink='true'])[data-perf='low'] .reader-headerbar,
+html[data-ui-style='glass']:not([data-eink='true'])[data-perf='low'] .dialog-overlay {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+html[data-ui-style]:not([data-ui-style='classic']):not([data-eink='true'])[data-perf='low'] .btn {
+  transition: none;
+}
+html[data-ui-style]:not([data-ui-style='classic']):not([data-eink='true'])[data-perf='low']
+  .btn:active {
+  transform: none;
+}
+html[data-ui-style]:not([data-ui-style='classic']):not([data-eink='true'])[data-perf='low']
+  .library-page {
+  background-attachment: scroll;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -11,6 +11,7 @@ import { getBookDirFromLanguage } from '@/utils/book';
 import { getPanelTopInset } from '@/utils/insets';
 import { useEnv } from '@/context/EnvContext';
 import { useSwipeToDismiss } from '@/hooks/useSwipeToDismiss';
+import { useSwipeToClose } from '@/hooks/useSwipeToClose';
 import { usePanelResize } from '@/hooks/usePanelResize';
 import { useThemeStore } from '@/store/themeStore';
 import { Overlay } from '@/components/Overlay';
@@ -81,6 +82,10 @@ const SideBar = ({}) => {
       setIsFullHeightInMobile(isMobile);
     },
     (data) => setIsFullHeightInMobile(data.clientY < 44),
+  );
+
+  const swipeClose = useSwipeToClose('left', !isMobile && !isSideBarPinned, () =>
+    setSideBarVisible(false),
   );
 
   useEffect(() => {
@@ -196,6 +201,7 @@ const SideBar = ({}) => {
           !isSideBarPinned && viewSettings?.isEink && 'border-base-content border-e',
         )}
         role='navigation'
+        {...swipeClose}
         aria-label={_('Sidebar')}
         dir={viewSettings?.rtl && languageDir === 'rtl' ? 'rtl' : 'ltr'}
         style={{

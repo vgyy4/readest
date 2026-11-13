@@ -12,6 +12,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useThemeStore } from '@/store/themeStore';
 import { useEnv } from '@/context/EnvContext';
 import { useSwipeToDismiss } from '@/hooks/useSwipeToDismiss';
+import { useSwipeToClose } from '@/hooks/useSwipeToClose';
 import { usePanelResize } from '@/hooks/usePanelResize';
 import { TextSelection } from '@/utils/sel';
 import { BookNote } from '@/types/book';
@@ -72,6 +73,10 @@ const Notebook: React.FC = ({}) => {
       setIsFullHeightInMobile(isMobile);
     },
     (data) => setIsFullHeightInMobile(data.clientY < 44),
+  );
+
+  const swipeClose = useSwipeToClose('right', !isMobile && !isNotebookPinned, () =>
+    setNotebookVisible(false),
   );
 
   const onNavigateEvent = async () => {
@@ -336,6 +341,7 @@ const Notebook: React.FC = ({}) => {
       )}
       <div
         ref={notebookRef}
+        {...swipeClose}
         className={clsx(
           'notebook-container right-0 flex min-w-60 select-none flex-col',
           'full-height font-sans text-base font-normal transition-[padding-top] duration-300 sm:text-sm',

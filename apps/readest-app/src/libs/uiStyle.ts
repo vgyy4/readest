@@ -42,8 +42,18 @@ export const setUiStyle = (style: UiStyle) => {
 export const nextUiStyle = (style: UiStyle): UiStyle =>
   UI_STYLES[(UI_STYLES.indexOf(style) + 1) % UI_STYLES.length]!;
 
+/**
+ * Old iPads and phones (iOS 15 and older, or 2 cores / 2 GB) get `data-perf="low"`, which
+ * turns off the blur and big shadows that their GPUs cannot keep up with.
+ */
+export const isLowEndDevice = (userAgent: string, cores?: number, memoryGb?: number) => {
+  const ios = /OS (\d+)[_.]\d/.exec(userAgent);
+  if (/iPad|iPhone|iPod/.test(userAgent) && ios && Number(ios[1]) < 16) return true;
+  return (cores !== undefined && cores <= 2) || (memoryGb !== undefined && memoryGb <= 2);
+};
+
 /** Runs before the app paints, so there is no flash of the wrong style. */
-export const UI_STYLE_BOOT_SCRIPT = `try{var s=localStorage.getItem('${UI_STYLE_KEY}');if(s!=='classic'&&s!=='glass'&&s!=='material')s='${DEFAULT_UI_STYLE}';document.documentElement.setAttribute('data-ui-style',s)}catch(e){document.documentElement.setAttribute('data-ui-style','${DEFAULT_UI_STYLE}')}`;
+export const UI_STYLE_BOOT_SCRIPT = `try{var d=document.documentElement,s=localStorage.getItem('${UI_STYLE_KEY}');if(s!=='classic'&&s!=='glass'&&s!=='material')s='${DEFAULT_UI_STYLE}';d.setAttribute('data-ui-style',s);var n=navigator,m=/OS (\\d+)[_.]\\d/.exec(n.userAgent),low=(/iPad|iPhone|iPod/.test(n.userAgent)&&m&&+m[1]<16)||(n.hardwareConcurrency&&n.hardwareConcurrency<=2)||(n.deviceMemory&&n.deviceMemory<=2);if(low)d.setAttribute('data-perf','low')}catch(e){document.documentElement.setAttribute('data-ui-style','${DEFAULT_UI_STYLE}')}`;
 
 /** The style's name for a menu; `_` is the app's translation function. */
 export const uiStyleLabel = (_: (key: string) => string, style: UiStyle) =>
