@@ -29,8 +29,13 @@ export const isOffline = (error: unknown) =>
   error instanceof TypeError ||
   /failed to fetch|load failed|network|offline|timed out|abort/i.test(String(error));
 
+/**
+ * The library lives at both "/" and "/library": the native apps open at "/", so leaving it out
+ * meant the profile screen never appeared on a phone or tablet. The reader is gated too.
+ */
 const isGatedPath = (pathname: string | null) =>
-  !!pathname && (pathname.startsWith('/library') || pathname.startsWith('/reader'));
+  !!pathname &&
+  (pathname === '/' || pathname.startsWith('/library') || pathname.startsWith('/reader'));
 
 /**
  * Holds the library and the reader back until a profile has been chosen for this launch,

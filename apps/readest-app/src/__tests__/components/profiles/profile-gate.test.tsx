@@ -154,6 +154,29 @@ describe('ProfileGate', () => {
   });
 });
 
+describe('ProfileGate where the app starts', () => {
+  // The native apps open at "/", which renders the library; only /library was gated, so the
+  // profile screen never appeared on a phone or tablet.
+  it.each([
+    '/',
+    '/library',
+    '/library/',
+    '/reader/abc',
+    '/reader',
+  ])('asks who is reading at %s', async (path) => {
+    mocks.pathname = path;
+    renderGate();
+    expect(await screen.findByText('Who is reading?')).toBeTruthy();
+    expect(screen.queryByText('the library')).toBeNull();
+  });
+
+  it.each(['/auth', '/user', '/opds', '/send', '/auth/callback'])('leaves %s alone', (path) => {
+    mocks.pathname = path;
+    renderGate();
+    expect(screen.getByText('the library')).toBeTruthy();
+  });
+});
+
 describe('ProfileGate when the server cannot list the profiles', () => {
   it('says so and offers to try again or carry on, instead of silently skipping the screen', async () => {
     mocks.fetchProfiles.mockRejectedValue(new Error('Something went wrong'));

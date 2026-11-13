@@ -1,4 +1,5 @@
 import clsx from 'clsx';
+import dynamic from 'next/dynamic';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { RiQuillPenLine } from 'react-icons/ri';
 
@@ -29,12 +30,14 @@ import {
   removeBookNoteOverlays,
   removeEmptyAnnotationPlaceholder,
 } from '../../utils/annotatorUtil';
-import AIAssistant from './AIAssistant';
 import NotebookHeader from './Header';
 import NoteEditor from './NoteEditor';
 import SearchBar from './SearchBar';
 import NotebookTabNavigation from './NotebookTabNavigation';
 import EmptyState from '../EmptyState';
+
+// The assistant brings the AI libraries with it: only fetched when its tab is opened.
+const AIAssistant = dynamic(() => import('./AIAssistant'), { ssr: false });
 
 const MIN_NOTEBOOK_WIDTH = 0.15;
 const MAX_NOTEBOOK_WIDTH = 0.45;

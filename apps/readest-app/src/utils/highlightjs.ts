@@ -1,5 +1,8 @@
 import { ViewSettings } from '@/types/book';
-import hljs from 'highlight.js/lib/common';
+
+// highlight.js is large and most books have no code: it is fetched the first time a page does.
+let hljsLoader: Promise<typeof import('highlight.js/lib/common').default> | null = null;
+const loadHljs = () => (hljsLoader ??= import('highlight.js/lib/common').then((m) => m.default));
 
 export const CODE_LANGUAGES = [
   'auto-detect',
@@ -72,20 +75,23 @@ export const manageSyntaxHighlighting = (doc: Document, viewSettings: ViewSettin
   // Find all <pre> elements in available content
   const codeBlocks = doc.querySelectorAll('pre');
 
-  // https://github.com/highlightjs/highlight.js/wiki/security
-  // I believe this is valid in this use case to ignore this warning.
-  hljs.configure({ ignoreUnescapedHTML: true });
+  if (codeBlocks.length === 0) return;
+  void loadHljs().then((hljs) => {
+    // https://github.com/highlightjs/highlight.js/wiki/security
+    // I believe this is valid in this use case to ignore this warning.
+    hljs.configure({ ignoreUnescapedHTML: true });
 
-  codeBlocks.forEach((block) => {
-    // remove any previously applied classes by hljs
-    block.textContent = block.textContent || '';
-    block.className = block.className.replace(/language-\S+/g, '');
-    block.classList.remove('hljs');
-    block.removeAttribute('data-highlighted');
-    if (codeLanguage && codeLanguage !== 'auto-detect') {
-      block.classList.add(`language-${codeLanguage}`);
-    }
-    hljs.highlightElement(block as HTMLElement);
+    codeBlocks.forEach((block) => {
+      // remove any previously applied classes by hljs
+      block.textContent = block.textContent || '';
+      block.className = block.className.replace(/language-\S+/g, '');
+      block.classList.remove('hljs');
+      block.removeAttribute('data-highlighted');
+      if (codeLanguage && codeLanguage !== 'auto-detect') {
+        block.classList.add(`language-${codeLanguage}`);
+      }
+      hljs.highlightElement(block as HTMLElement);
+    });
   });
 };
 
