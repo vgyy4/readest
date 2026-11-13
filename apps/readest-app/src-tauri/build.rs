@@ -30,6 +30,8 @@ fn main() {
             "download_file",
             "upload_file",
             "serve_media_file",
+            "network_kind",
+            "watch_folders",
             "get_environment_variable",
             "get_executable_dir",
             "set_webview_info",

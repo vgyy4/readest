@@ -215,6 +215,8 @@
     "allow-download-file",
     "allow-upload-file",
     "allow-serve-media-file",
+    "allow-network-kind",
+    "allow-watch-folders",
     "allow-get-environment-variable",
     "allow-get-executable-dir",
     "allow-set-webview-info",

@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { PROFILE_HEADER } from '@/libs/profiles/shared';
+import { isProfileBookUpload, PROFILE_HEADER } from '@/libs/profiles/shared';
 import { createSupabaseAdminClient } from '@/utils/supabase';
 import { corsAllMethods, runMiddleware } from '@/utils/cors';
 import {
@@ -25,15 +25,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { user, token, isProfile } = await validateUserAndToken(
+  const { user, token, ownerId, isProfile } = await validateUserAndToken(
     req.headers['authorization'],
     req.headers[PROFILE_HEADER],
   );
-  if (!user || !token || isProfile) {
+  if (!user || !token) {
     return res.status(403).json({ error: 'Not authenticated' });
   }
 
   const { fileName, fileSize, bookHash, replicaKind, replicaId, temp = false, media } = req.body;
+
+  // A profile has no storage of its own: its books are stored once, in the account's, so what it
+  // adds is also there for the admin. It may upload nothing but the files of a book.
+  if (isProfile && (media || temp || !isProfileBookUpload(fileName, bookHash))) {
+    return res.status(403).json({ error: 'A profile can only upload book files' });
+  }
+  const storageOwnerId = isProfile && ownerId ? ownerId : user.id;
 
   // Reject object-key path traversal before building any key. `fileName` is
   // fully client-controlled and is interpolated into `${user.id}/${fileName}`;
@@ -99,12 +106,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(403).json({ error: 'Insufficient storage quota', usage });
     }
 
-    const fileKey = `${user.id}/${fileName}`;
+    const fileKey = `${storageOwnerId}/${fileName}`;
     const supabase = createSupabaseAdminClient();
     const { data: existingRecord, error: fetchError } = await supabase
       .from('files')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', storageOwnerId)
       .eq('file_key', fileKey)
       .limit(1)
       .single();
@@ -120,7 +127,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .from('files')
         .insert([
           {
-            user_id: user.id,
+            user_id: storageOwnerId,
             book_hash: bookHash ?? null,
             replica_kind: replicaKind ?? null,
             replica_id: replicaId ?? null,

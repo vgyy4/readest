@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-network-kind"
+description = "Enables the network_kind command without any pre-configured scope."
+commands.allow = ["network_kind"]
+
+[[permission]]
+identifier = "deny-network-kind"
+description = "Denies the network_kind command without any pre-configured scope."
+commands.deny = ["network_kind"]

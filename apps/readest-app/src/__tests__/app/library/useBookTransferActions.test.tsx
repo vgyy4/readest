@@ -95,7 +95,7 @@ describe('useBookTransferActions upload routing (issue #5062)', () => {
     const ok = await result.current.handleBookUpload(book);
 
     expect(runFileBookUpload).toHaveBeenCalledWith(envConfig, book);
-    expect(queueUpload).toHaveBeenCalledWith(book, 1);
+    expect(queueUpload).toHaveBeenCalledWith(book, 1, { manual: true });
     expect(ok).toBe(true);
   });
 

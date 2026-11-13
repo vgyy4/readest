@@ -45,6 +45,8 @@ export interface TransferItem {
   completedAt?: number;
   priority: number; // Lower = higher priority
   isBackground: boolean;
+  /** Started by the user (a button), not by an import: it may use mobile data. */
+  manual?: boolean;
 }
 
 interface TransferState {
@@ -64,7 +66,9 @@ interface TransferState {
     type: TransferType,
     priority?: number,
     isBackground?: boolean,
+    manual?: boolean,
   ) => string;
+  markManual: (transferId: string) => void;
   addReplicaTransfer: (
     replicaKind: string,
     replicaId: string,
@@ -152,7 +156,7 @@ export const useTransferStore = create<TransferState>((set, get) => ({
 
   setIsTransferQueueOpen: (isOpen) => set({ isTransferQueueOpen: isOpen }),
 
-  addTransfer: (bookHash, bookTitle, type, priority = 10, isBackground = false) => {
+  addTransfer: (bookHash, bookTitle, type, priority = 10, isBackground = false, manual = false) => {
     const id = generateTransferId();
     const transfer: TransferItem = {
       id,
@@ -170,6 +174,7 @@ export const useTransferStore = create<TransferState>((set, get) => ({
       createdAt: Date.now(),
       priority,
       isBackground,
+      manual,
     };
 
     set((state) => ({
@@ -177,6 +182,14 @@ export const useTransferStore = create<TransferState>((set, get) => ({
     }));
 
     return id;
+  },
+
+  markManual: (transferId) => {
+    set((state) => {
+      const transfer = state.transfers[transferId];
+      if (!transfer || transfer.manual) return state;
+      return { transfers: { ...state.transfers, [transferId]: { ...transfer, manual: true } } };
+    });
   },
 
   addReplicaTransfer: (replicaKind, replicaId, displayTitle, type, opts = {}) => {
@@ -294,6 +307,8 @@ export const useTransferStore = create<TransferState>((set, get) => ({
           ...state.transfers,
           [transferId]: {
             ...transfer,
+            // The user pressing Retry is a manual upload: it may use mobile data.
+            manual: transfer.manual || transfer.type === 'upload',
             status: 'pending',
             progress: 0,
             transferredBytes: 0,

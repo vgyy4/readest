@@ -16,6 +16,7 @@ import {
   StatBookRecord,
   StatPageRecord,
 } from '@/libs/sync';
+import { shareNewBooksWithOwner } from '@/libs/profiles/shareWithOwner';
 import { validateUserAndToken } from '@/utils/access';
 import { DBBook, DBBookConfig } from '@/types/records';
 
@@ -495,7 +496,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const { user, token, isProfile } = await validateUserAndToken(
+  const { user, token, ownerId, isProfile } = await validateUserAndToken(
     req.headers.get('authorization'),
     req.headers.get(PROFILE_HEADER),
   );
@@ -716,6 +717,23 @@ export async function POST(req: NextRequest) {
     if (booksResult?.error) throw new Error(booksResult.error);
     if (configsResult?.error) throw new Error(configsResult.error);
     if (notesResult?.error) throw new Error(notesResult.error);
+
+    // A book a profile adds is also the admin's: give the account's main profile its own row.
+    // Best-effort, so a failure here never loses the profile's own sync.
+    if (isProfile && ownerId && books.length > 0) {
+      try {
+        await shareNewBooksWithOwner(
+          supabase,
+          ownerId,
+          user.id,
+          (books as { hash?: string; book_hash?: string }[])
+            .map((b) => b.hash ?? b.book_hash ?? '')
+            .filter(Boolean),
+        );
+      } catch (error) {
+        console.warn("Could not share the profile's new books with the admin:", error);
+      }
+    }
 
     // Piggyback the per-book reading progress from the configs push onto the
     // matching `books` row. Other devices' library pull-to-refresh reads

@@ -4,6 +4,7 @@ import { LuLibrary } from 'react-icons/lu';
 import { IoFileTray } from 'react-icons/io5';
 import { useEnv } from '@/context/EnvContext';
 import { useTranslation } from '@/hooks/useTranslation';
+import { eventDispatcher } from '@/utils/event';
 import MenuItem from '@/components/MenuItem';
 import Menu from '@/components/Menu';
 
@@ -38,6 +39,11 @@ const ImportMenu: React.FC<ImportMenuProps> = ({
 
   const handleImportFromDirectory = () => {
     onImportBooksFromDirectory?.();
+    setIsDropdownOpen?.(false);
+  };
+
+  const handleSetUpFilesFolder = () => {
+    void eventDispatcher.dispatch('setup-files-watch-folder');
     setIsDropdownOpen?.(false);
   };
 
@@ -79,6 +85,13 @@ const ImportMenu: React.FC<ImportMenuProps> = ({
           label={_('From Directory')}
           Icon={<IoFileTray className='h-5 w-5' />}
           onClick={handleImportFromDirectory}
+        />
+      )}
+      {appService?.isIOSApp && (
+        <MenuItem
+          label={_('Files App Folder')}
+          Icon={<IoFileTray className='h-5 w-5' />}
+          onClick={handleSetUpFilesFolder}
         />
       )}
       {onImportBookFromUrl && (

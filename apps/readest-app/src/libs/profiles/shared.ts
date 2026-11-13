@@ -65,3 +65,17 @@ export const planBookGrants = (owned: string[], current: string[], desired: stri
     remove: [...have].filter((id) => !want.has(id)),
   };
 };
+
+/**
+ * May a profile upload `fileName` for `bookHash`? A profile has no storage of its own: its
+ * uploads go to the account's single copy, but only the files of one book (the book itself
+ * and its cover), under that book's folder, and never anywhere else in the account's storage.
+ */
+export const isProfileBookUpload = (fileName: unknown, bookHash: unknown): boolean => {
+  if (typeof fileName !== 'string' || typeof bookHash !== 'string') return false;
+  if (!/^[0-9a-f]{32}$/i.test(bookHash)) return false;
+  const folder = `Readest/Books/${bookHash}/`;
+  if (!fileName.startsWith(folder)) return false;
+  const rest = fileName.slice(folder.length);
+  return rest.length > 0 && !rest.split('/').some((part) => part === '..' || part === '.');
+};

@@ -43,6 +43,10 @@
     </array>
     <key>LSSupportsOpeningDocumentsInPlace</key>
     <true/>
+    <!-- Shows the app's Documents folder in the Files app (On My iPad > Readest), where each
+         profile's watch folder lives (see libs/profiles/filesWatchFolder.ts). -->
+    <key>UIFileSharingEnabled</key>
+    <true/>
     <!-- Add-only Photos access. Readest never reads the library, but the
          WebView's "Add to Photos" image callout and the share sheet's
          "Save Image" activity both write through PHPhotoLibrary in-process;

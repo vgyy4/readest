@@ -39,17 +39,20 @@ export function useTransferQueue(libraryLoaded = true, delayInit = 0) {
     }
   }, [appService, envConfig, libraryLoaded, delayInit, _]);
 
-  const queueUpload = useCallback((book: Book, priority?: number) => {
-    return transferManager.queueUpload(book, priority);
+  const queueUpload = useCallback((book: Book, priority?: number, opts?: { manual?: boolean }) => {
+    return transferManager.queueUpload(book, priority, opts);
   }, []);
 
   const queueDownload = useCallback((book: Book, priority?: number) => {
     return transferManager.queueDownload(book, priority);
   }, []);
 
-  const queueBatchUploads = useCallback((books: Book[], priority?: number) => {
-    return transferManager.queueBatchUploads(books, priority);
-  }, []);
+  const queueBatchUploads = useCallback(
+    (books: Book[], priority?: number, opts?: { manual?: boolean }) => {
+      return transferManager.queueBatchUploads(books, priority, opts);
+    },
+    [],
+  );
 
   const cancelTransfer = useCallback((transferId: string) => {
     transferManager.cancelTransfer(transferId);

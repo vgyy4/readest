@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useWindowActiveChanged } from '@/app/reader/hooks/useWindowActiveChanged';
 import { debounce } from '@/utils/debounce';
+import { FALLBACK_SCAN_INTERVAL_MS, startFolderWatch } from '@/services/folderWatch';
 
 /** Quiet window collapsing the near-simultaneous mount + focus/visibility triggers. */
 const AUTO_IMPORT_DEBOUNCE_MS = 800;
@@ -19,8 +20,8 @@ export interface UseAutoImportFoldersOptions {
 
 /**
  * Re-scans the user's registered external library folders and imports newly
- * added books — on mount and whenever the app regains focus (desktop) or
- * becomes visible again (mobile). Local-folder counterpart of
+ * added books — on mount, whenever the app regains focus (desktop) or becomes
+ * visible again (mobile), and when the system reports a change in the folders. Local-folder counterpart of
  * {@link useLibraryFileSync}. Mount once on the library page. This hook only
  * decides *when* to run; the scan/dedup/import lives in `scanAndImport`.
  */
@@ -62,6 +63,31 @@ export const useAutoImportFolders = ({
   useEffect(() => {
     if (enabled && folders.length > 0) debouncedRun();
     return () => debouncedRun.cancel();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, foldersKey, debouncedRun]);
+
+  // Let the system say when something changes (inotify, FSEvents, ...) instead of looking
+  // again and again. Only where it cannot (iOS) is there a slow timer as well.
+  useEffect(() => {
+    if (!enabled || folders.length === 0) return;
+    let cancelled = false;
+    let stop: (() => void) | null = null;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    void startFolderWatch(foldersRef.current, () => debouncedRun()).then((stopWatching) => {
+      if (cancelled) {
+        stopWatching?.();
+        return;
+      }
+      stop = stopWatching;
+      if (!stopWatching) {
+        timer = setInterval(() => debouncedRun(), FALLBACK_SCAN_INTERVAL_MS);
+      }
+    });
+    return () => {
+      cancelled = true;
+      stop?.();
+      if (timer) clearInterval(timer);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, foldersKey, debouncedRun]);
 

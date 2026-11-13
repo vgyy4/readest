@@ -37,7 +37,10 @@ pub struct MediaServer {
 pub enum RangeSpec {
     /// No `Range` header: the whole file.
     Whole,
-    Bytes { start: u64, end: u64 },
+    Bytes {
+        start: u64,
+        end: u64,
+    },
     /// The range cannot be satisfied (416).
     Unsatisfiable,
 }
@@ -152,7 +155,8 @@ fn respond_text(stream: &mut TcpStream, status: &str, extra: &str) {
 impl MediaServer {
     /// Start listening on a free loopback port.
     pub fn start() -> std::io::Result<Self> {
-        let listener = TcpListener::bind(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)))?;
+        let listener =
+            TcpListener::bind(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)))?;
         let port = listener.local_addr()?.port();
         let server = MediaServer {
             port,
@@ -272,20 +276,44 @@ mod tests {
 
     #[test]
     fn closed_open_and_suffix_ranges() {
-        assert_eq!(parse_range(Some("bytes=0-9"), 100), RangeSpec::Bytes { start: 0, end: 9 });
-        assert_eq!(parse_range(Some("bytes=90-"), 100), RangeSpec::Bytes { start: 90, end: 99 });
-        assert_eq!(parse_range(Some("bytes=-10"), 100), RangeSpec::Bytes { start: 90, end: 99 });
-        assert_eq!(parse_range(Some("bytes=-500"), 100), RangeSpec::Bytes { start: 0, end: 99 });
+        assert_eq!(
+            parse_range(Some("bytes=0-9"), 100),
+            RangeSpec::Bytes { start: 0, end: 9 }
+        );
+        assert_eq!(
+            parse_range(Some("bytes=90-"), 100),
+            RangeSpec::Bytes { start: 90, end: 99 }
+        );
+        assert_eq!(
+            parse_range(Some("bytes=-10"), 100),
+            RangeSpec::Bytes { start: 90, end: 99 }
+        );
+        assert_eq!(
+            parse_range(Some("bytes=-500"), 100),
+            RangeSpec::Bytes { start: 0, end: 99 }
+        );
         // An end past the file is clamped to its last byte.
-        assert_eq!(parse_range(Some("bytes=50-999"), 100), RangeSpec::Bytes { start: 50, end: 99 });
+        assert_eq!(
+            parse_range(Some("bytes=50-999"), 100),
+            RangeSpec::Bytes { start: 50, end: 99 }
+        );
         // Only the first of several ranges is served.
-        assert_eq!(parse_range(Some("bytes=0-4, 10-14"), 100), RangeSpec::Bytes { start: 0, end: 4 });
+        assert_eq!(
+            parse_range(Some("bytes=0-4, 10-14"), 100),
+            RangeSpec::Bytes { start: 0, end: 4 }
+        );
     }
 
     #[test]
     fn unsatisfiable_ranges() {
-        assert_eq!(parse_range(Some("bytes=100-"), 100), RangeSpec::Unsatisfiable);
-        assert_eq!(parse_range(Some("bytes=20-10"), 100), RangeSpec::Unsatisfiable);
+        assert_eq!(
+            parse_range(Some("bytes=100-"), 100),
+            RangeSpec::Unsatisfiable
+        );
+        assert_eq!(
+            parse_range(Some("bytes=20-10"), 100),
+            RangeSpec::Unsatisfiable
+        );
         assert_eq!(parse_range(Some("bytes=-0"), 100), RangeSpec::Unsatisfiable);
         assert_eq!(parse_range(Some("bytes=0-5"), 0), RangeSpec::Unsatisfiable);
     }

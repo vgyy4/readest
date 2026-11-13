@@ -49,7 +49,7 @@ export const useBookTransferActions = (
       const pushed = backends.length > 0 ? await runFileBookUpload(envConfig, book) : false;
       // Readest Cloud uploads go through the transfer queue (resumable, with its
       // own progress panel), so it reports "queued", not "uploaded".
-      const queued = readest ? !!transferManager.queueUpload(book, 1) : false;
+      const queued = readest ? !!transferManager.queueUpload(book, 1, { manual: true }) : false;
 
       if (queued) {
         eventDispatcher.dispatch('toast', {

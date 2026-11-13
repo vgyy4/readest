@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { PROFILE_HEADER } from '@/libs/profiles/shared';
+import { isProfileBookUpload, PROFILE_HEADER } from '@/libs/profiles/shared';
 import { createSupabaseAdminClient } from '@/utils/supabase';
 import { corsAllMethods, runMiddleware } from '@/utils/cors';
 import {
@@ -32,17 +32,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   await runMiddleware(req, res, corsAllMethods);
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { user, token, isProfile } = await validateUserAndToken(
+  const { user, token, ownerId, isProfile } = await validateUserAndToken(
     req.headers['authorization'],
     req.headers[PROFILE_HEADER],
   );
-  if (!user || !token || isProfile) return res.status(403).json({ error: 'Not authenticated' });
+  if (!user || !token) return res.status(403).json({ error: 'Not authenticated' });
 
   const { action, fileName, fileSize, bookHash, uploadId } = req.body ?? {};
   if (!isSafeObjectKeyName(fileName)) return res.status(400).json({ error: 'Invalid fileName' });
   if (!supportsMultipart()) return res.status(400).json({ error: 'Multipart not supported' });
 
-  const fileKey = `${user.id}/${fileName}`;
+  // A profile's books are stored once, in the account's storage (see upload.ts).
+  const profileBookHash = bookHash ?? /^Readest\/Books\/([0-9a-f]{32})\//i.exec(fileName)?.[1];
+  if (isProfile && !isProfileBookUpload(fileName, profileBookHash)) {
+    return res.status(403).json({ error: 'A profile can only upload book files' });
+  }
+  const storageOwnerId = isProfile && ownerId ? ownerId : user.id;
+  const fileKey = `${storageOwnerId}/${fileName}`;
   const supabase = createSupabaseAdminClient();
 
   try {
@@ -58,7 +64,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const { data: existing, error: fetchError } = await supabase
         .from('files')
         .select('file_size')
-        .eq('user_id', user.id)
+        .eq('user_id', storageOwnerId)
         .eq('file_key', fileKey)
         .limit(1)
         .maybeSingle();
@@ -66,7 +72,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (!existing) {
         const { error: insertError } = await supabase.from('files').insert([
           {
-            user_id: user.id,
+            user_id: storageOwnerId,
             book_hash: bookHash ?? null,
             replica_kind: null,
             replica_id: null,
@@ -101,7 +107,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const { data: record } = await supabase
         .from('files')
         .select('file_size')
-        .eq('user_id', user.id)
+        .eq('user_id', storageOwnerId)
         .eq('file_key', fileKey)
         .limit(1)
         .maybeSingle();
@@ -119,7 +125,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // An upload that never finished must not count against the quota (but a file that was
       // already there from an earlier upload keeps its record).
       if (!(await objectExists(fileKey))) {
-        await supabase.from('files').delete().eq('user_id', user.id).eq('file_key', fileKey);
+        await supabase.from('files').delete().eq('user_id', storageOwnerId).eq('file_key', fileKey);
       }
       return res.status(200).json({ aborted: true });
     }

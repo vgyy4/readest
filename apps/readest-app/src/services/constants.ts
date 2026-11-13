@@ -203,6 +203,7 @@ export const DEFAULT_SYSTEM_SETTINGS: Partial<SystemSettings> = {
   openLastBooks: false,
   lastOpenBooks: [],
   autoImportBooksOnOpen: false,
+  uploadWifiOnly: true,
   telemetryEnabled: true,
   discordRichPresenceEnabled: false,
   libraryViewMode: 'grid',

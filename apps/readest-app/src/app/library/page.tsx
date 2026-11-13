@@ -90,7 +90,17 @@ import { MigrateDataWindow } from './components/MigrateDataWindow';
 import { BackupWindow } from './components/BackupWindow';
 import { CacheManagerWindow } from './components/CacheManagerWindow';
 import { useDragDropImport } from './hooks/useDragDropImport';
+import { getActiveProfileId } from '@/libs/profiles/active';
+import { getCachedProfiles } from '@/libs/profiles/cache';
+import { filesWatchPath } from '@/libs/profiles/filesWatchFolder';
+import { documentDir } from '@tauri-apps/api/path';
+import {
+  getFlattenFolders,
+  getWatchedFolders,
+  withWatchedFolders,
+} from '@/libs/profiles/watchedFolders';
 import { useTransferQueue } from '@/hooks/useTransferQueue';
+import { useUploadMissingBooks } from './hooks/useUploadMissingBooks';
 import { useAppRouter } from '@/hooks/useAppRouter';
 import { Toast } from '@/components/Toast';
 import {
@@ -384,6 +394,7 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
   useOpenShareLink();
   useClipUrlIngress();
   useTransferQueue(libraryLoaded);
+  useUploadMissingBooks(libraryLoaded);
 
   const { pullLibrary, pushLibrary } = useBooksSync();
   // Library-scoped auto-sync for the active third-party cloud provider (WebDAV /
@@ -576,6 +587,14 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
     if (!dirPath) return;
     await handleImportBooksFromDirectory(dirPath);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // The import menu's "Files App Folder" (iOS); the handler is defined further down.
+  const setUpFilesFolderRef = useRef<() => Promise<void>>(async () => {});
+  useEffect(() => {
+    const handler = async () => void (await setUpFilesFolderRef.current());
+    eventDispatcher.on('setup-files-watch-folder', handler);
+    return () => eventDispatcher.off('setup-files-watch-folder', handler);
   }, []);
 
   useEffect(() => {
@@ -1075,15 +1094,11 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
   // Local-folder counterpart of useLibraryFileSync: re-scan the folders the
   // user opted into auto-import (a subset of externalLibraryFolders, chosen
   // per-folder in the Import-from-Folder dialog) and import newly-added books
-  // on library open and app focus. Desktop + Android only (iOS security-scoped
-  // bookmarks are out of scope).
+  // on library open and app focus. On iOS only the folder inside the app (shown in the Files
+  // app, see setUpFilesWatchFolder) can be watched; other folders need security-scoped bookmarks.
   useAutoImportFolders({
-    enabled:
-      (settings.autoImportFolders?.length ?? 0) > 0 &&
-      libraryLoaded &&
-      isTauriAppPlatform() &&
-      !appService?.isIOSApp,
-    folders: settings.autoImportFolders ?? [],
+    enabled: getWatchedFolders(settings).length > 0 && libraryLoaded && isTauriAppPlatform(),
+    folders: getWatchedFolders(settings),
     scanAndImport: autoImportFromWatchedFolders,
   });
 
@@ -1477,7 +1492,7 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
   const isAutoImportFolder = (directory: string): boolean => {
     const target = normalizeRoot(directory);
     if (!target) return false;
-    const roots = settings.autoImportFolders ?? [];
+    const roots = getWatchedFolders(settings);
     return roots.some((r) => normalizeRoot(r) === target);
   };
 
@@ -1494,17 +1509,15 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
    * wants them. Derived from `settings` (not the store snapshot) so removing or
    * re-pointing a folder re-renders the list immediately.
    */
-  const watchedFolders = (settings.autoImportFolders ?? []).map((path) => ({
+  const watchedFolders = getWatchedFolders(settings).map((path) => ({
     path,
-    flatten: (settings.autoImportFlattenFolders ?? []).some(
-      (r) => normalizeRoot(r) === normalizeRoot(path),
-    ),
+    flatten: getFlattenFolders(settings).some((r) => normalizeRoot(r) === normalizeRoot(path)),
   }));
 
   const isFlattenedAutoImportFolder = (directory: string): boolean => {
     const target = normalizeRoot(directory);
     if (!target) return false;
-    const roots = useSettingsStore.getState().settings.autoImportFlattenFolders ?? [];
+    const roots = getFlattenFolders(useSettingsStore.getState().settings);
     return roots.some((r) => normalizeRoot(r) === target);
   };
 
@@ -1553,8 +1566,8 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
     const target = normalizeRoot(directory);
     if (!target) return;
     const liveSettings = useSettingsStore.getState().settings;
-    const existing = liveSettings.autoImportFolders ?? [];
-    const existingFlatten = liveSettings.autoImportFlattenFolders ?? [];
+    const existing = getWatchedFolders(liveSettings);
+    const existingFlatten = getFlattenFolders(liveSettings);
     const present = existing.some((r) => normalizeRoot(r) === target);
     const flattenPresent = existingFlatten.some((r) => normalizeRoot(r) === target);
     const flattenWanted = enabled && flatten;
@@ -1571,8 +1584,7 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
       : without(existingFlatten);
     const nextSettings = {
       ...liveSettings,
-      autoImportFolders: next,
-      autoImportFlattenFolders: nextFlatten,
+      ...withWatchedFolders(liveSettings, getActiveProfileId(), next, nextFlatten),
     };
     setSettings(nextSettings);
     try {
@@ -1581,6 +1593,42 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
       console.error('Failed to persist autoImportFolders update:', e);
     }
   };
+
+  /**
+   * iOS: give the active profile a folder of its own in the app's Files-app folder
+   * (On My iPad > Readest > Readest Watch > <name>) and watch it, since an arbitrary folder
+   * cannot be kept across launches there. Books and audiobooks dropped in are added to this
+   * profile's library when the app is opened, or comes back to the front.
+   */
+  const setUpFilesWatchFolder = async (): Promise<void> => {
+    if (!appService) return;
+    try {
+      const profileId = getActiveProfileId();
+      const profileName = profileId
+        ? (getCachedProfiles()?.profiles.find((p) => p.id === profileId)?.name ?? null)
+        : null;
+      const path = filesWatchPath(await documentDir(), profileName);
+      await appService.allowPathsInScopes?.([path], true);
+      await appService.createDir(path, 'None', true);
+      await registerExternalLibraryFolder(path);
+      await setAutoImportFolder(path, true, true);
+      eventDispatcher.dispatch('toast', {
+        type: 'success',
+        timeout: 8000,
+        message: _(
+          'Put books and audiobooks in Files, On My iPad, Readest, Readest Watch, {{name}}. They are added when you open Readest.',
+          { name: profileName ?? _('Main') },
+        ),
+      });
+    } catch (e) {
+      console.error('Could not set up the Files app folder:', e);
+      eventDispatcher.dispatch('toast', {
+        type: 'error',
+        message: _('Could not set up the folder.'),
+      });
+    }
+  };
+  setUpFilesFolderRef.current = setUpFilesWatchFolder;
 
   /**
    * Recursively scan {@link result.directory}, keep files matching one

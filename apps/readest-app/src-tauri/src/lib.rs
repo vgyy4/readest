@@ -27,16 +27,18 @@ mod dir_scanner;
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 mod discord_rpc;
 mod epub_parser;
+mod folder_watch;
 #[cfg(target_os = "macos")]
 mod macos;
+mod media_server;
 mod mobi_parser;
+mod network;
 mod nightly_update;
 mod parser_common;
 mod range_file;
 mod sentry_config;
 #[cfg(desktop)]
 mod spawn_fresh_browser;
-mod media_server;
 mod transfer_file;
 #[cfg(desktop)]
 mod window_state;
@@ -407,6 +409,8 @@ pub fn run() {
             download_file,
             upload_file,
             media_server::serve_media_file,
+            network::network_kind,
+            folder_watch::watch_folders,
             get_environment_variable,
             get_executable_dir,
             set_webview_info,

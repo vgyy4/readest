@@ -386,6 +386,12 @@ export interface SystemSettings {
    * {@link autoImportFolders}.
    */
   autoImportFlattenFolders?: string[];
+  /**
+   * The same two lists for every profile other than the main one, by profile id. A profile's
+   * watched folders add books to that profile's library only. Device-local like the lists above.
+   */
+  profileAutoImportFolders?: Record<string, string[]>;
+  profileAutoImportFlattenFolders?: Record<string, string[]>;
 
   keepLogin: boolean;
   alwaysOnTop: boolean;
@@ -402,6 +408,11 @@ export interface SystemSettings {
   openLastBooks: boolean;
   lastOpenBooks: string[];
   autoImportBooksOnOpen: boolean;
+  /**
+   * Upload books and audiobooks added automatically only while on Wi-Fi. An upload the user
+   * starts by hand goes ahead on mobile data too. On by default.
+   */
+  uploadWifiOnly?: boolean;
   savedBookCoverForLockScreen: string;
   savedBookCoverForLockScreenPath: string;
   telemetryEnabled: boolean;

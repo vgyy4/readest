@@ -6,6 +6,7 @@ import { isReadestCloudStorageActive } from '@/services/sync/cloudSyncProvider';
 import { TranslationFunc } from '@/hooks/useTranslation';
 import { createProgressThrottle, ProgressHandler, ProgressPayload } from '@/utils/transfer';
 import { eventDispatcher } from '@/utils/event';
+import { getNetworkKind, type NetworkKind, shouldHoldUpload } from '@/utils/uploadNetwork';
 import { getTransferMessages } from './transferMessages';
 
 const TRANSFER_QUEUE_KEY = 'readest_transfer_queue';
@@ -19,6 +20,11 @@ const PROGRESS_THROTTLE_MS = 100;
 // Quota failures in a batch import arrive one per book as transfers drain;
 // collapse them into one summary toast per burst instead of N identical toasts.
 const QUOTA_TOAST_FLUSH_MS = 1500;
+// While uploads wait for Wi-Fi they are looked at again this often, as well as whenever the
+// system says the network or the app's visibility changed.
+const WIFI_RECHECK_MS = 60_000;
+// How long a reading of the network stays good.
+const NETWORK_KIND_TTL_MS = 5_000;
 
 interface PersistedQueueData {
   schemaVersion?: number;
@@ -40,6 +46,11 @@ class TransferManager {
   private settingsUnsub: (() => void) | null = null;
   private quotaFailureCount = 0;
   private quotaToastTimer: ReturnType<typeof setTimeout> | null = null;
+  private wifiRecheckTimer: ReturnType<typeof setTimeout> | null = null;
+  private networkListenersAdded = false;
+  private networkKind: NetworkKind = 'unknown';
+  private networkKindAt = 0;
+  private refreshingNetwork = false;
   private readyResolve: () => void = () => {};
   private readyPromise: Promise<void> = new Promise<void>((resolve) => {
     this.readyResolve = resolve;
@@ -62,6 +73,64 @@ class TransferManager {
 
   private isBookUploadAllowed(): boolean {
     return isReadestCloudStorageActive(useSettingsStore.getState().settings);
+  }
+
+  /** An upload nobody pressed a button for: an import's (see `queueUpload`'s `manual`). */
+  private isAutomaticBookUpload(t: TransferItem): boolean {
+    return t.kind === 'book' && t.type === 'upload' && !t.manual;
+  }
+
+  /**
+   * Read the network again in the background (never more than every few seconds). Deciding
+   * stays synchronous, using the last reading; when the reading changes the queue is looked at.
+   */
+  private refreshNetworkKind(): void {
+    if (this.refreshingNetwork || Date.now() - this.networkKindAt < NETWORK_KIND_TTL_MS) return;
+    this.refreshingNetwork = true;
+    void getNetworkKind()
+      .then((kind) => {
+        const changed = kind !== this.networkKind;
+        this.networkKind = kind;
+        this.networkKindAt = Date.now();
+        // A tick later, so a pass that is still finishing does not swallow the wake-up.
+        if (changed) setTimeout(() => this.processQueue(), 0);
+      })
+      .finally(() => {
+        this.refreshingNetwork = false;
+      });
+  }
+
+  /** Must automatic uploads wait right now (mobile data, or no network, with Wi-Fi only on)? */
+  private automaticUploadsHeld(): boolean {
+    const wifiOnly = useSettingsStore.getState().settings?.uploadWifiOnly !== false;
+    if (!wifiOnly) return false;
+    return shouldHoldUpload({ manual: false, wifiOnly, kind: this.networkKind });
+  }
+
+  /**
+   * Look again when the network changes, when the app comes back to the front, and (while
+   * something is waiting) once a minute. No constant polling: with nothing waiting nothing runs.
+   */
+  private addNetworkListeners(): void {
+    if (this.networkListenersAdded || typeof window === 'undefined') return;
+    this.networkListenersAdded = true;
+    const wake = () => this.processQueue();
+    window.addEventListener('online', wake);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') wake();
+    });
+    (navigator as Navigator & { connection?: EventTarget }).connection?.addEventListener?.(
+      'change',
+      wake,
+    );
+  }
+
+  private scheduleWifiRecheck(): void {
+    if (this.wifiRecheckTimer) return;
+    this.wifiRecheckTimer = setTimeout(() => {
+      this.wifiRecheckTimer = null;
+      this.processQueue();
+    }, WIFI_RECHECK_MS);
   }
 
   private isDeferredBookUpload(t: TransferItem): boolean {
@@ -114,8 +183,12 @@ class TransferManager {
     this._ = translationFn;
     await this.loadPersistedQueue();
     this.reconcileUploadsWithProvider();
+    // Know the network before the first upload is considered, so nothing slips out on mobile data.
+    this.networkKind = await getNetworkKind();
+    this.networkKindAt = Date.now();
     this.isInitialized = true;
     this.readyResolve();
+    this.addNetworkListeners();
 
     // Re-gate when settings hydrate or the selected provider changes.
     this.settingsUnsub?.();
@@ -143,7 +216,12 @@ class TransferManager {
     return this.readyPromise;
   }
 
-  queueUpload(book: Book, priority: number = 10): string | null {
+  /**
+   * `manual`: the user pressed an upload button. Uploads that come from adding a book start by
+   * themselves and wait for Wi-Fi (unless the user turned that off); a manual one may use mobile
+   * data. Pressing Upload on a book already waiting makes it manual.
+   */
+  queueUpload(book: Book, priority: number = 10, opts: { manual?: boolean } = {}): string | null {
     if (!this.isReady()) {
       console.warn('TransferManager not initialized');
       return null;
@@ -161,10 +239,22 @@ class TransferManager {
     // Check if already queued or in progress
     const existing = store.getTransferByBookHash(book.hash, 'upload');
     if (existing) {
+      if (opts.manual) {
+        store.markManual(existing.id);
+        this.persistQueue();
+        this.processQueue();
+      }
       return existing.id;
     }
 
-    const transferId = store.addTransfer(book.hash, book.title, 'upload', priority);
+    const transferId = store.addTransfer(
+      book.hash,
+      book.title,
+      'upload',
+      priority,
+      false,
+      !!opts.manual,
+    );
     this.persistQueue();
     this.processQueue();
     return transferId;
@@ -208,9 +298,13 @@ class TransferManager {
     return transferId;
   }
 
-  queueBatchUploads(books: Book[], priority: number = 10): string[] {
+  queueBatchUploads(
+    books: Book[],
+    priority: number = 10,
+    opts: { manual?: boolean } = {},
+  ): string[] {
     return books
-      .map((book) => this.queueUpload(book, priority))
+      .map((book) => this.queueUpload(book, priority, opts))
       .filter((id): id is string => id !== null);
   }
 
@@ -372,7 +466,13 @@ class TransferManager {
 
     if (store.isQueuePaused) return;
 
-    const pending = store.getPendingTransfers().filter((t) => !this.isDeferredBookUpload(t));
+    this.refreshNetworkKind();
+    const held = this.automaticUploadsHeld();
+    const waiting = (t: TransferItem) => held && this.isAutomaticBookUpload(t);
+    const pending = store
+      .getPendingTransfers()
+      .filter((t) => !this.isDeferredBookUpload(t) && !waiting(t));
+    if (held && store.getPendingTransfers().some(waiting)) this.scheduleWifiRecheck();
     const activeCount = store.getActiveTransfers().length;
     const maxConcurrent = store.maxConcurrent;
 
@@ -393,7 +493,9 @@ class TransferManager {
     // not yet hydrated) don't count — re-looping on them every 100ms
     // would busy-wait; the settings subscription wakes them instead.
     const newStore = useTransferStore.getState();
-    const processable = newStore.getPendingTransfers().filter((t) => !this.isDeferredBookUpload(t));
+    const processable = newStore
+      .getPendingTransfers()
+      .filter((t) => !this.isDeferredBookUpload(t) && !waiting(t));
     if (processable.length > 0 && !newStore.isQueuePaused) {
       setTimeout(() => this.processQueue(), 100);
     }

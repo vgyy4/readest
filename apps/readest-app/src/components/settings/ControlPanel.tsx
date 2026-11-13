@@ -70,6 +70,7 @@ const ControlPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterRes
   const [autohideCursor, setAutohideCursor] = useState(settings.autohideCursor);
   const [allowScript, setAllowScript] = useState(viewSettings.allowScript);
   const [isAutoCheckUpdates, setIsAutoCheckUpdates] = useState(settings.autoCheckUpdates);
+  const [uploadWifiOnly, setUploadWifiOnly] = useState(settings.uploadWifiOnly !== false);
   const [isNightlyChannel, setIsNightlyChannel] = useState(settings.updateChannel === 'nightly');
   const [isTelemetryEnabled, setIsTelemetryEnabled] = useState(settings.telemetryEnabled);
 
@@ -305,6 +306,12 @@ const ControlPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterRes
     const newValue = !isAutoCheckUpdates;
     saveSysSettings(envConfig, 'autoCheckUpdates', newValue);
     setIsAutoCheckUpdates(newValue);
+  };
+
+  const toggleUploadWifiOnly = () => {
+    const newValue = !uploadWifiOnly;
+    saveSysSettings(envConfig, 'uploadWifiOnly', newValue);
+    setUploadWifiOnly(newValue);
   };
 
   const toggleNightlyChannel = () => {
@@ -552,6 +559,19 @@ const ControlPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterRes
             checked={isNightlyChannel}
             onChange={toggleNightlyChannel}
             data-setting-id='settings.control.nightlyChannel'
+          />
+        </BoxedList>
+      )}
+
+      {appService?.isMobileApp && (
+        <BoxedList title={_('Uploads')} data-setting-id='settings.control.uploadWifiOnly'>
+          <SettingsSwitchRow
+            label={_('Upload on Wi-Fi Only')}
+            description={_(
+              'Books you add upload by themselves once you are on Wi-Fi. Pressing Upload on a book uses mobile data too.',
+            )}
+            checked={uploadWifiOnly}
+            onChange={toggleUploadWifiOnly}
           />
         </BoxedList>
       )}

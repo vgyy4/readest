@@ -205,7 +205,7 @@ const TransferQueuePanel: React.FC = () => {
     : [];
 
   const handleUploadAll = () => {
-    booksToUpload.forEach((book) => queueUpload(book));
+    booksToUpload.forEach((book) => queueUpload(book, undefined, { manual: true }));
   };
 
   const handleDownloadAll = () => {
