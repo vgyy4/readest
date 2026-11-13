@@ -24,3 +24,30 @@ export const verifyPin = async (pin: string, stored: string): Promise<boolean> =
   const actual = await scryptAsync(pin, Buffer.from(saltHex, 'hex'));
   return timingSafeEqual(actual, expected);
 };
+
+/**
+ * May `pin` open a profile? The main profile asks for the master PIN when one
+ * is set. A profile asks for its own PIN when it has one, and also accepts the
+ * master PIN, so the master can always get in. A profile PIN never opens the
+ * main profile.
+ */
+export const pinAllowsEntry = async ({
+  isMain,
+  targetHash,
+  masterHash,
+  pin,
+}: {
+  isMain: boolean;
+  targetHash: string | null;
+  masterHash: string | null;
+  pin?: string;
+}): Promise<boolean> => {
+  const required = isMain ? masterHash : targetHash;
+  if (!required) return true;
+  if (!pin) return false;
+  const accepted = isMain ? [masterHash] : [targetHash, masterHash];
+  for (const hash of accepted) {
+    if (hash && (await verifyPin(pin, hash))) return true;
+  }
+  return false;
+};

@@ -13,16 +13,14 @@ import { getDirFromLanguage } from './rtl';
 import { code6392to6391, isValidLang, normalizedLangCode } from './lang';
 import { md5 } from './md5';
 import { getActiveProfileId } from '@/libs/profiles/active';
+import { libraryFilenameFor } from '@/libs/profiles/files';
 
 export const getDir = (book: Book) => {
   return `${book.hash}`;
 };
 // A profile keeps its own library index and per-book progress file on this
 // device; the book, cover and other files are shared by hash.
-export const getLibraryFilename = () => {
-  const profileId = getActiveProfileId();
-  return profileId ? `library.${profileId}.json` : 'library.json';
-};
+export const getLibraryFilename = () => libraryFilenameFor(getActiveProfileId());
 export const getLibraryBackupFilename = () => {
   const profileId = getActiveProfileId();
   return profileId ? `library_backup.${profileId}.json` : 'library_backup.json';

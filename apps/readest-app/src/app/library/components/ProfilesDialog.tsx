@@ -5,7 +5,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import Dialog from '@/components/Dialog';
 import { getActiveProfileId } from '@/libs/profiles/active';
 import {
-  clearMasterPin,
+  clearPin,
   createProfile,
   deleteProfile,
   fetchProfileBooks,
@@ -13,10 +13,10 @@ import {
   getCachedProfiles,
   ProfilesState,
   renameProfile,
-  setMasterPin,
+  setPin,
   setProfileBooks,
   switchProfile,
-  verifyMasterPin,
+  verifyProfilePin,
 } from '@/libs/profiles/client';
 import { isValidPin } from '@/libs/profiles/shared';
 
@@ -25,39 +25,53 @@ interface ProfilesDialogProps {
   onClose: () => void;
 }
 
-type View = 'loading' | 'pin' | 'list' | 'books';
+type View = 'loading' | 'unlock' | 'list' | 'books' | 'enter' | 'profilePin';
+
+interface Target {
+  /** null is the main profile. */
+  id: string | null;
+  name: string;
+  hasPin?: boolean;
+}
 
 /**
- * Profiles of this account. The master (main) profile adds profiles, chooses
- * which of its books each one can see, and may protect that with a PIN. A
- * profile keeps its own progress, notes and library; switching reloads the app.
+ * Profiles of this account. The main profile adds profiles, chooses which of its
+ * books each one can see, and may give itself and every profile a 4-digit PIN.
+ * A profile keeps its own progress, notes and library; switching reloads the app.
+ * Inside a profile, opening another profile (or the main one) asks for that
+ * profile's PIN, and the master PIN opens any of them.
  */
 const ProfilesDialog: React.FC<ProfilesDialogProps> = ({ books, onClose }) => {
   const _ = useTranslation();
   const activeId = getActiveProfileId();
   const [view, setView] = useState<View>('loading');
   const [state, setState] = useState<ProfilesState>({ hasPin: false, profiles: [] });
-  const [pin, setPin] = useState('');
+  // The master PIN once entered, sent with each management request.
+  const [masterPin, setMasterPin] = useState('');
   const [pinInput, setPinInput] = useState('');
   const [newName, setNewName] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [booksFor, setBooksFor] = useState<{ id: string; name: string } | null>(null);
+  const [target, setTarget] = useState<Target | null>(null);
   const [granted, setGranted] = useState<Set<string>>(new Set());
 
-  const load = async () => {
-    try {
-      const next = activeId ? (getCachedProfiles() ?? state) : await fetchProfiles();
-      setState(next);
-      setView(next.hasPin ? 'pin' : 'list');
-    } catch {
-      setError(_('Could not reach the server.'));
-      setView('list');
-    }
-  };
-
   useEffect(() => {
-    void load();
+    void (async () => {
+      try {
+        if (activeId) {
+          // Inside a profile the list comes from the last one the main profile saw.
+          setState(getCachedProfiles() ?? { hasPin: false, profiles: [] });
+          setView('list');
+          return;
+        }
+        const next = await fetchProfiles();
+        setState(next);
+        setView(next.hasPin ? 'unlock' : 'list');
+      } catch {
+        setError(_('Could not reach the server.'));
+        setView('list');
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -80,46 +94,81 @@ const ProfilesDialog: React.FC<ProfilesDialogProps> = ({ books, onClose }) => {
     [books],
   );
 
+  const backToList = () => {
+    setPinInput('');
+    setError('');
+    setView('list');
+  };
+
+  const requirePinFormat = () => {
+    if (!isValidPin(pinInput)) throw new Error(_('The PIN must be 4 digits.'));
+  };
+
+  // Unlock the main profile's management (master PIN).
   const unlock = () =>
     run(async () => {
-      if (!(await verifyMasterPin(pinInput))) throw new Error(_('Wrong PIN.'));
-      setPin(pinInput);
-      setPinInput('');
-      setView('list');
+      if (!(await verifyProfilePin(null, pinInput))) throw new Error(_('Wrong PIN.'));
+      setMasterPin(pinInput);
+      backToList();
     });
 
-  const openBooks = (id: string, name: string) =>
+  // The main profile switches without asking again; a profile asks for the PIN
+  // of wherever it is going.
+  const trySwitch = (to: Target) => {
+    if (!activeId || !to.hasPin) return switchProfile(to.id);
+    setTarget(to);
+    setPinInput('');
+    setError('');
+    setView('enter');
+  };
+
+  const enter = () =>
     run(async () => {
-      setGranted(new Set(await fetchProfileBooks(id, pin)));
-      setBooksFor({ id, name });
+      if (!(await verifyProfilePin(target!.id, pinInput))) throw new Error(_('Wrong PIN.'));
+      switchProfile(target!.id);
+    });
+
+  const openBooks = (to: Target) =>
+    run(async () => {
+      setGranted(new Set(await fetchProfileBooks(to.id!, masterPin)));
+      setTarget(to);
       setView('books');
     });
 
   const saveBooks = () =>
     run(async () => {
-      await setProfileBooks(booksFor!.id, [...granted], pin);
-      setView('list');
+      await setProfileBooks(target!.id!, [...granted], masterPin);
+      backToList();
     });
 
-  const changePin = () =>
+  const openProfilePin = (to: Target) => {
+    setTarget(to);
+    setPinInput('');
+    setError('');
+    setView('profilePin');
+  };
+
+  // Master PIN when `target` is null, else that profile's own PIN.
+  const savePin = (profileId?: string) =>
     run(async () => {
-      if (!isValidPin(pinInput)) throw new Error(_('The PIN must be 4 to 8 digits.'));
-      await setMasterPin(pinInput, pin);
-      setPin(pinInput);
-      setPinInput('');
+      requirePinFormat();
+      await setPin(pinInput, masterPin, profileId);
+      if (!profileId) setMasterPin(pinInput);
       await refresh();
+      backToList();
     });
 
-  const removePin = () =>
+  const removePin = (profileId?: string) =>
     run(async () => {
-      await clearMasterPin(pin);
-      setPin('');
+      await clearPin(masterPin, profileId);
+      if (!profileId) setMasterPin('');
       await refresh();
+      backToList();
     });
 
   const handleAdd = () =>
     run(async () => {
-      await createProfile(newName, pin);
+      await createProfile(newName, masterPin);
       setNewName('');
       await refresh();
     });
@@ -128,7 +177,7 @@ const ProfilesDialog: React.FC<ProfilesDialogProps> = ({ books, onClose }) => {
     const name = window.prompt(_('Profile name'), current)?.trim();
     if (!name || name === current) return;
     void run(async () => {
-      await renameProfile(id, name, pin);
+      await renameProfile(id, name, masterPin);
       await refresh();
     });
   };
@@ -136,14 +185,27 @@ const ProfilesDialog: React.FC<ProfilesDialogProps> = ({ books, onClose }) => {
   const handleDelete = (id: string, name: string) => {
     if (!window.confirm(_('Delete {{name}} and all its progress and notes?', { name }))) return;
     void run(async () => {
-      await deleteProfile(id, pin);
+      await deleteProfile(id, masterPin);
       await refresh();
     });
   };
 
   const activeName = state.profiles.find((p) => p.id === activeId)?.name;
-
   const rowButton = 'btn btn-ghost btn-sm';
+
+  const pinField = (label: string) => (
+    <input
+      type='password'
+      inputMode='numeric'
+      autoComplete='off'
+      maxLength={4}
+      aria-label={label}
+      placeholder='••••'
+      className='input input-bordered input-sm w-28 text-center tracking-widest'
+      value={pinInput}
+      onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))}
+    />
+  );
 
   return (
     <Dialog
@@ -161,27 +223,30 @@ const ProfilesDialog: React.FC<ProfilesDialogProps> = ({ books, onClose }) => {
 
         {view === 'loading' && <p className='text-sm'>{_('Loading…')}</p>}
 
-        {view === 'pin' && (
+        {(view === 'unlock' || view === 'enter') && (
           <form
             className='flex flex-col gap-3'
             onSubmit={(e) => {
               e.preventDefault();
-              void unlock();
+              void (view === 'unlock' ? unlock() : enter());
             }}
           >
-            <p className='text-sm'>{_('Enter the master PIN to continue.')}</p>
-            <input
-              type='password'
-              inputMode='numeric'
-              autoComplete='off'
-              aria-label={_('Master PIN')}
-              className='input input-bordered input-sm w-40'
-              value={pinInput}
-              onChange={(e) => setPinInput(e.target.value)}
-            />
-            <button type='submit' className='btn btn-contrast btn-sm w-40' disabled={busy}>
-              {_('Unlock')}
-            </button>
+            <p className='text-sm'>
+              {view === 'unlock'
+                ? _('Enter the master PIN to continue.')
+                : _('Enter the PIN for {{name}}.', { name: target?.name ?? '' })}
+            </p>
+            {pinField(view === 'unlock' ? _('Master PIN') : _('PIN'))}
+            <div className='flex gap-2'>
+              <button type='submit' className='btn btn-contrast btn-sm' disabled={busy}>
+                {view === 'unlock' ? _('Unlock') : _('Open')}
+              </button>
+              {view === 'enter' && (
+                <button type='button' className={rowButton} onClick={backToList}>
+                  {_('Cancel')}
+                </button>
+              )}
+            </div>
           </form>
         )}
 
@@ -199,7 +264,13 @@ const ProfilesDialog: React.FC<ProfilesDialogProps> = ({ books, onClose }) => {
                   {_('Main profile')}
                 </span>
                 {activeId && (
-                  <button type='button' className={rowButton} onClick={() => switchProfile(null)}>
+                  <button
+                    type='button'
+                    className={rowButton}
+                    onClick={() =>
+                      trySwitch({ id: null, name: _('Main profile'), hasPin: state.hasPin })
+                    }
+                  >
                     {_('Switch')}
                   </button>
                 )}
@@ -208,13 +279,16 @@ const ProfilesDialog: React.FC<ProfilesDialogProps> = ({ books, onClose }) => {
                 <li key={profile.id} className='flex flex-wrap items-center justify-between gap-2'>
                   <span className={clsx('text-sm', profile.id === activeId && 'font-semibold')}>
                     {profile.name}
+                    {profile.hasPin && (
+                      <span className='text-base-content/50 ms-2 text-xs'>{_('PIN')}</span>
+                    )}
                   </span>
                   <span className='flex flex-wrap gap-1'>
                     {profile.id !== activeId && (
                       <button
                         type='button'
                         className={rowButton}
-                        onClick={() => switchProfile(profile.id)}
+                        onClick={() => trySwitch(profile)}
                       >
                         {_('Switch')}
                       </button>
@@ -225,9 +299,16 @@ const ProfilesDialog: React.FC<ProfilesDialogProps> = ({ books, onClose }) => {
                           type='button'
                           className={rowButton}
                           disabled={busy}
-                          onClick={() => void openBooks(profile.id, profile.name)}
+                          onClick={() => void openBooks(profile)}
                         >
                           {_('Books')}
+                        </button>
+                        <button
+                          type='button'
+                          className={rowButton}
+                          onClick={() => openProfilePin(profile)}
+                        >
+                          {profile.hasPin ? _('Change PIN') : _('Set PIN')}
                         </button>
                         <button
                           type='button'
@@ -280,24 +361,17 @@ const ProfilesDialog: React.FC<ProfilesDialogProps> = ({ books, onClose }) => {
                 <section className='border-base-300 flex flex-col gap-2 border-t pt-3'>
                   <h3 className='text-sm font-medium'>{_('Master PIN')}</h3>
                   <p className='text-base-content/60 text-xs'>
-                    {_('Asked before profiles are managed, and when leaving a profile.')}
+                    {_(
+                      'Protects the main profile and managing profiles, and opens any profile that has its own PIN.',
+                    )}
                   </p>
                   <div className='flex flex-wrap items-center gap-2'>
-                    <input
-                      type='password'
-                      inputMode='numeric'
-                      autoComplete='off'
-                      aria-label={_('New PIN')}
-                      placeholder={_('4 to 8 digits')}
-                      className='input input-bordered input-sm w-36'
-                      value={pinInput}
-                      onChange={(e) => setPinInput(e.target.value)}
-                    />
+                    {pinField(_('New PIN'))}
                     <button
                       type='button'
                       className='btn btn-outline btn-sm'
                       disabled={busy}
-                      onClick={() => void changePin()}
+                      onClick={() => void savePin()}
                     >
                       {state.hasPin ? _('Change PIN') : _('Set PIN')}
                     </button>
@@ -318,10 +392,44 @@ const ProfilesDialog: React.FC<ProfilesDialogProps> = ({ books, onClose }) => {
           </>
         )}
 
-        {view === 'books' && booksFor && (
+        {view === 'profilePin' && target?.id && (
+          <form
+            className='flex flex-col gap-3'
+            onSubmit={(e) => {
+              e.preventDefault();
+              void savePin(target.id!);
+            }}
+          >
+            <p className='text-sm'>{_('PIN for {{name}}', { name: target.name })}</p>
+            <p className='text-base-content/60 text-xs'>
+              {_('Asked when opening this profile from another one. The master PIN also works.')}
+            </p>
+            {pinField(_('New PIN'))}
+            <div className='flex flex-wrap gap-2'>
+              <button type='submit' className='btn btn-contrast btn-sm' disabled={busy}>
+                {_('Save')}
+              </button>
+              {target.hasPin && (
+                <button
+                  type='button'
+                  className={clsx(rowButton, 'text-error')}
+                  disabled={busy}
+                  onClick={() => void removePin(target.id!)}
+                >
+                  {_('Remove PIN')}
+                </button>
+              )}
+              <button type='button' className={rowButton} onClick={backToList}>
+                {_('Cancel')}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {view === 'books' && target?.id && (
           <>
             <p className='text-sm'>
-              {_('Books {{name}} can see', { name: booksFor.name })} ({granted.size})
+              {_('Books {{name}} can see', { name: target.name })} ({granted.size})
             </p>
             <div className='flex gap-2'>
               <button
@@ -355,8 +463,11 @@ const ProfilesDialog: React.FC<ProfilesDialogProps> = ({ books, onClose }) => {
                 </li>
               ))}
             </ul>
+            <p className='text-base-content/60 text-xs'>
+              {_('Every profile reads the same copy of a book; each keeps its own progress.')}
+            </p>
             <div className='flex justify-end gap-2'>
-              <button type='button' className={rowButton} onClick={() => setView('list')}>
+              <button type='button' className={rowButton} onClick={backToList}>
                 {_('Cancel')}
               </button>
               <button

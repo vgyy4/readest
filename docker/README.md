@@ -145,13 +145,17 @@ One account can hold several profiles: the account itself is the **main**
 profile; every other profile is a hidden, login-less user owned by it, so each
 keeps its own library, reading progress, notes and stats. The main profile
 chooses which of its books each profile can see (**Settings menu → Profiles…**)
-and may protect profile management and switching with a PIN. Books and covers
-stay stored once, under the main profile.
+and may give itself and every profile a 4-digit PIN. A profile's PIN is asked
+when opening it from another profile, and the master PIN opens any of them.
+A book shared with several profiles is stored once, under the main profile: each
+profile only gets its own small catalog entry and its own progress and notes,
+and the shared file is never copied.
 
 Server requirements:
 
-- Apply `volumes/db/migrations/019_profiles.sql` (the migration runner does it
-  on first boot, or run `zz-readest-migrations.sh` by hand when upgrading).
+- Apply `volumes/db/migrations/019_profiles.sql` and `020_profile_pins.sql` (the
+  migration runner does it on first boot, or run `zz-readest-migrations.sh` by
+  hand when upgrading).
 - The client must be built from this fork (`compose.build.yaml`), not the
   upstream `ghcr.io/readest/readest` image: the profile API routes live in the
   app, and they use `SUPABASE_ADMIN_KEY` (the service role key, already passed
@@ -161,7 +165,11 @@ Limits worth knowing: a profile shares the main account's sign-in on the device,
 so profiles separate data and gate management behind the PIN, but are not a
 security boundary against someone who deliberately crafts API requests as the
 main profile. Profiles cannot upload books or manage storage, and do not sync
-account-level settings, fonts, dictionaries or catalogs.
+account-level settings, fonts, dictionaries or catalogs. Because the file is
+shared, the main profile cannot delete a book from storage while a profile can
+still see it (the server answers 409 until it is removed from that profile), and
+deleting a book in one profile leaves the files on the device while another
+profile still has it.
 
 ### Pointing the mobile and desktop apps at your server
 

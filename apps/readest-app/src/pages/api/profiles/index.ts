@@ -29,12 +29,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         admin.from('profile_pins').select('owner_id').eq('owner_id', ownerId).maybeSingle(),
       ]);
       if (error) throw error;
+      const ids = (profiles ?? []).map((p) => p.profile_user_id as string);
+      const { data: pins } = ids.length
+        ? await admin.from('profile_user_pins').select('profile_user_id').in('profile_user_id', ids)
+        : { data: [] };
+      const withPin = new Set((pins ?? []).map((p) => p.profile_user_id as string));
       return res.status(200).json({
         hasPin: !!pin,
         profiles: (profiles ?? []).map((p) => ({
           id: p.profile_user_id,
           name: p.name,
           createdAt: p.created_at,
+          hasPin: withPin.has(p.profile_user_id as string),
         })),
       });
     }

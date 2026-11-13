@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { corsAllMethods, runMiddleware } from '@/utils/cors';
 import { createSupabaseAdminClient } from '@/utils/supabase';
+import { getBooksInUseByProfiles } from '@/libs/profiles/api';
 import { PROFILE_HEADER } from '@/libs/profiles/shared';
 import { validateUserAndToken } from '@/utils/access';
 import { deleteObject } from '@/utils/object';
@@ -30,7 +31,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const supabase = createSupabaseAdminClient();
     const { data: fileRecord, error: fileError } = await supabase
       .from('files')
-      .select('user_id, id')
+      .select('user_id, id, book_hash')
       .eq('user_id', user.id)
       .eq('file_key', fileKey)
       .limit(1)
@@ -42,6 +43,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (fileRecord.user_id !== user.id) {
       return res.status(403).json({ error: 'Unauthorized access to the file' });
+    }
+
+    // A book some profile can still see is the account's only copy: keep it.
+    if (fileRecord.book_hash) {
+      const inUse = await getBooksInUseByProfiles(supabase, user.id, [fileRecord.book_hash]);
+      if (inUse.size > 0) {
+        return res
+          .status(409)
+          .json({ error: 'This book is still available to a profile; remove it there first' });
+      }
     }
 
     try {

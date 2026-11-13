@@ -26,7 +26,7 @@ export const resolveProfileUser = async (
 };
 
 export const isValidPin = (pin: unknown): pin is string =>
-  typeof pin === 'string' && /^\d{4,8}$/.test(pin);
+  typeof pin === 'string' && /^\d{4}$/.test(pin);
 
 /** What changes when the master sets a profile's visible books to `desired`. */
 export const diffGrants = (current: string[], desired: string[]) => {

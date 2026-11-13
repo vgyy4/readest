@@ -79,3 +79,29 @@ export const requireMaster = async (
   }
   return { ownerId: user.id, admin };
 };
+
+/**
+ * Which of `bookHashes` a profile of this account can still see. Their files
+ * are the account's single copy, so the owner may not delete them from storage
+ * while a profile uses them.
+ */
+export const getBooksInUseByProfiles = async (
+  admin: MasterContext['admin'],
+  ownerId: string,
+  bookHashes: string[],
+): Promise<Set<string>> => {
+  if (bookHashes.length === 0) return new Set();
+  const { data: profiles } = await admin
+    .from('profiles')
+    .select('profile_user_id')
+    .eq('owner_id', ownerId);
+  const profileIds = (profiles ?? []).map((p) => p.profile_user_id as string);
+  if (profileIds.length === 0) return new Set();
+  const { data: books } = await admin
+    .from('books')
+    .select('book_hash')
+    .in('user_id', profileIds)
+    .in('book_hash', bookHashes)
+    .is('deleted_at', null);
+  return new Set((books ?? []).map((b) => b.book_hash as string));
+};

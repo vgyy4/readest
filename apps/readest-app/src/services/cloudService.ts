@@ -5,6 +5,7 @@ import {
   getLocalBookFilename,
   getRemoteBookFilename,
   getCoverFilename,
+  getConfigFilename,
 } from '@/utils/book';
 import {
   downloadFile,
@@ -18,12 +19,18 @@ import { ClosableFile } from '@/utils/file';
 import { ProgressHandler } from '@/utils/transfer';
 import { CLOUD_BOOKS_SUBDIR, CLOUD_REPLICAS_SUBDIR } from './constants';
 import { isBookFileContentSource, resolveBookContentSource } from './bookContent';
+import { isProfileActive } from '@/libs/profiles/active';
+import { isBookInOtherProfileLibrary } from '@/libs/profiles/sharedBooks';
 
 export async function deleteBook(
   fs: FileSystem,
   book: Book,
   deleteAction: DeleteAction,
 ): Promise<void> {
+  // Profiles read one shared copy of each book. While another profile on this
+  // device still has the book, only this profile's own entry goes: the files
+  // stay for the others, and a profile never deletes the account's cloud copy.
+  const filesShared = await isBookInOtherProfileLibrary(fs, book);
   if (deleteAction === 'local' || deleteAction === 'both' || deleteAction === 'purge') {
     const source = await resolveBookContentSource(fs, book);
     // Only remove files Readest itself created. A 'managed' source lives under
@@ -32,7 +39,7 @@ export async function deleteBook(
     // (book.filePath, base 'None') — e.g. a "Read books in place" import or a
     // transiently-opened file. Deleting a book from Readest must NEVER remove
     // that source file; doing so silently destroyed users' originals.
-    if (source.kind === 'managed' && deleteAction !== 'purge') {
+    if (source.kind === 'managed' && deleteAction !== 'purge' && !filesShared) {
       // Purge wipes the whole directory below, so skip the per-file removal.
       if (await fs.exists(source.path, source.base)) {
         await fs.removeFile(source.path, source.base);
@@ -44,7 +51,7 @@ export async function deleteBook(
     // config.json (reading progress, notes, bookmarks) + nav.json that the
     // other delete actions leave behind. In-place books keep their external
     // source file untouched; this only clears Readest's own sidecar dir.
-    if (deleteAction === 'purge') {
+    if (deleteAction === 'purge' && !filesShared) {
       const dir = getDir(book);
       if (await fs.exists(dir, 'Books')) {
         await fs.removeDir(dir, 'Books', true);
@@ -59,7 +66,20 @@ export async function deleteBook(
       }
     }
 
-    if (deleteAction === 'both' && (await fs.exists(getCoverFilename(book), 'Books'))) {
+    // A purge still erases this profile's own progress and notes, even when the
+    // book's files stay for another profile.
+    if (deleteAction === 'purge' && filesShared) {
+      const configFile = getConfigFilename(book);
+      if (await fs.exists(configFile, 'Books')) {
+        await fs.removeFile(configFile, 'Books');
+      }
+    }
+
+    if (
+      deleteAction === 'both' &&
+      !filesShared &&
+      (await fs.exists(getCoverFilename(book), 'Books'))
+    ) {
       await fs.removeFile(getCoverFilename(book), 'Books');
     }
     if (deleteAction === 'local' || deleteAction === 'purge') {
@@ -73,7 +93,11 @@ export async function deleteBook(
       book.coverDownloadedAt = null;
     }
   }
-  if ((deleteAction === 'cloud' || deleteAction === 'both') && book.uploadedAt) {
+  if (
+    (deleteAction === 'cloud' || deleteAction === 'both') &&
+    book.uploadedAt &&
+    !isProfileActive()
+  ) {
     const fps = [getRemoteBookFilename(book), getCoverFilename(book)];
     for (const fp of fps) {
       const cfp = `${CLOUD_BOOKS_SUBDIR}/${fp}`;

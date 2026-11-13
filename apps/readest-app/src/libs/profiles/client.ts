@@ -6,6 +6,8 @@ import { PIN_HEADER } from './shared';
 export interface ProfileInfo {
   id: string;
   name: string;
+  /** The profile has a PIN of its own. */
+  hasPin?: boolean;
 }
 
 export interface ProfilesState {
@@ -67,23 +69,28 @@ export const setProfileBooks = async (profileId: string, bookHashes: string[], p
   await fetchWithAuth(endpoint('/books'), json('PUT', { profileId, bookHashes }, pin));
 };
 
-export const setMasterPin = async (newPin: string, currentPin?: string) => {
-  await fetchWithAuth(endpoint('/pin'), json('POST', { action: 'set', pin: newPin }, currentPin));
+/** 4-digit PINs. No `profileId` is the master PIN of the main profile. */
+export const setPin = async (newPin: string, masterPin?: string, profileId?: string) => {
+  await fetchWithAuth(
+    endpoint('/pin'),
+    json('POST', { action: 'set', pin: newPin, profileId }, masterPin),
+  );
 };
 
-export const clearMasterPin = async (currentPin?: string) => {
-  await fetchWithAuth(endpoint('/pin'), json('POST', { action: 'clear' }, currentPin));
+export const clearPin = async (masterPin?: string, profileId?: string) => {
+  await fetchWithAuth(endpoint('/pin'), json('POST', { action: 'clear', profileId }, masterPin));
 };
 
 /**
- * Check the master PIN. Sent as the master (no profile header) even while a
- * profile is active, which is how a profile unlocks switching.
+ * May `pin` open this profile (null = the main profile)? A profile takes its own
+ * PIN or the master PIN. Sent as the main account (no profile header) even while
+ * a profile is active, which is how a profile unlocks switching.
  */
-export const verifyMasterPin = async (pin: string): Promise<boolean> => {
+export const verifyProfilePin = async (profileId: string | null, pin?: string) => {
   const active = getActiveProfileId();
   setActiveProfileId(null);
   try {
-    await fetchWithAuth(endpoint('/pin'), json('POST', { action: 'verify' }, pin));
+    await fetchWithAuth(endpoint('/pin'), json('POST', { action: 'verify', profileId, pin }));
     return true;
   } catch {
     return false;

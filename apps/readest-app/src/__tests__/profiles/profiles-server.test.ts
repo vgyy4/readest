@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildGrantRows,
+  pinAllowsEntry,
   diffGrants,
   hashPin,
   isValidPin,
@@ -55,12 +56,13 @@ describe('master PIN', () => {
     expect(await verifyPin('1234', '')).toBe(false);
   });
 
-  it('accepts 4 to 8 digits only', () => {
+  it('accepts exactly 4 digits', () => {
     expect(isValidPin('1234')).toBe(true);
-    expect(isValidPin('12345678')).toBe(true);
+    expect(isValidPin('0000')).toBe(true);
     expect(isValidPin('123')).toBe(false);
-    expect(isValidPin('123456789')).toBe(false);
+    expect(isValidPin('12345')).toBe(false);
     expect(isValidPin('12a4')).toBe(false);
+    expect(isValidPin(1234)).toBe(false);
   });
 });
 
@@ -123,5 +125,34 @@ describe('PIN attempt limiter', () => {
     for (let i = 0; i < 5; i++) recordPinResult('owner-c', false, 1);
     recordPinResult('owner-c', true, 2);
     expect(isPinLocked('owner-c', 3)).toBe(false);
+  });
+});
+
+describe('pinAllowsEntry', () => {
+  it('lets anyone into a profile with no PIN of its own, and into a main profile with no PIN', async () => {
+    const master = await hashPin('1111');
+    expect(await pinAllowsEntry({ isMain: false, targetHash: null, masterHash: master })).toBe(
+      true,
+    );
+    expect(await pinAllowsEntry({ isMain: true, targetHash: null, masterHash: null })).toBe(true);
+  });
+
+  it("asks a profile's own PIN, and also accepts the master PIN", async () => {
+    const kid = await hashPin('2222');
+    const master = await hashPin('1111');
+    const entry = { isMain: false, targetHash: kid, masterHash: master };
+    expect(await pinAllowsEntry({ ...entry, pin: '2222' })).toBe(true);
+    expect(await pinAllowsEntry({ ...entry, pin: '1111' })).toBe(true);
+    expect(await pinAllowsEntry({ ...entry, pin: '3333' })).toBe(false);
+    expect(await pinAllowsEntry(entry)).toBe(false);
+  });
+
+  it('keeps a profile PIN from opening the main profile', async () => {
+    const kid = await hashPin('2222');
+    const master = await hashPin('1111');
+    const entry = { isMain: true, targetHash: null, masterHash: master };
+    expect(await pinAllowsEntry({ ...entry, pin: '2222' })).toBe(false);
+    expect(await pinAllowsEntry({ ...entry, pin: '1111' })).toBe(true);
+    expect(kid).toBeTruthy();
   });
 });

@@ -28,9 +28,9 @@ const client = vi.hoisted(() => ({
   deleteProfile: vi.fn(),
   fetchProfileBooks: vi.fn(),
   setProfileBooks: vi.fn(),
-  setMasterPin: vi.fn(),
-  clearMasterPin: vi.fn(),
-  verifyMasterPin: vi.fn(),
+  setPin: vi.fn(),
+  clearPin: vi.fn(),
+  verifyProfilePin: vi.fn(),
   switchProfile: vi.fn(),
 }));
 vi.mock('@/libs/profiles/client', () => client);
@@ -88,7 +88,9 @@ describe('ProfilesDialog (master)', () => {
 
   it('asks for the PIN first when one is set and sends it with later changes', async () => {
     client.fetchProfiles.mockResolvedValue({ hasPin: true, profiles: [{ id: KID, name: 'Kid' }] });
-    client.verifyMasterPin.mockImplementation(async (pin: string) => pin === '4821');
+    client.verifyProfilePin.mockImplementation(
+      async (_id: string | null, pin: string) => pin === '4821',
+    );
     client.deleteProfile.mockResolvedValue(undefined);
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     render(<ProfilesDialog books={books} onClose={() => {}} />);
@@ -104,21 +106,92 @@ describe('ProfilesDialog (master)', () => {
   });
 });
 
-describe('ProfilesDialog (inside a profile)', () => {
-  it('lets a profile switch back to the main profile, behind the PIN', async () => {
-    setActiveProfileId(KID);
-    client.getCachedProfiles.mockReturnValue({
-      hasPin: true,
-      profiles: [{ id: KID, name: 'Kid' }],
-    });
-    client.verifyMasterPin.mockResolvedValue(true);
-    render(<ProfilesDialog books={books} onClose={() => {}} />);
+describe('ProfilesDialog PINs', () => {
+  const state = {
+    hasPin: true,
+    profiles: [
+      { id: KID, name: 'Kid', hasPin: true },
+      { id: 'teen', name: 'Teen', hasPin: false },
+    ],
+  };
 
+  it('gives a profile its own 4-digit PIN, sent with the master PIN', async () => {
+    client.fetchProfiles.mockResolvedValue({
+      hasPin: true,
+      profiles: [{ id: KID, name: 'Kid', hasPin: false }],
+    });
+    client.verifyProfilePin.mockResolvedValue(true);
+    client.setPin.mockResolvedValue(undefined);
+    render(<ProfilesDialog books={books} onClose={() => {}} />);
     fireEvent.change(await screen.findByLabelText('Master PIN'), { target: { value: '4821' } });
     fireEvent.click(screen.getByText('Unlock'));
-    await screen.findByText('You are using the profile Kid.');
-    expect(screen.queryByText('Add profile')).toBeNull();
-    fireEvent.click(screen.getByText('Switch'));
-    expect(client.switchProfile).toHaveBeenCalledWith(null);
+
+    await screen.findByText('Kid');
+    fireEvent.click(screen.getAllByText('Set PIN')[0]!);
+    fireEvent.change(screen.getByLabelText('New PIN'), { target: { value: '12' } });
+    fireEvent.click(screen.getByText('Save'));
+    await screen.findByText('The PIN must be 4 digits.');
+    expect(client.setPin).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText('New PIN'), { target: { value: '2222' } });
+    fireEvent.click(screen.getByText('Save'));
+    await waitFor(() => expect(client.setPin).toHaveBeenCalledWith('2222', '4821', KID));
+  });
+
+  it('lets the main profile open a profile without asking for its PIN', async () => {
+    client.fetchProfiles.mockResolvedValue({ ...state, hasPin: false });
+    render(<ProfilesDialog books={books} onClose={() => {}} />);
+    await screen.findByText('Kid');
+    fireEvent.click(screen.getAllByText('Switch')[0]!);
+    expect(client.switchProfile).toHaveBeenCalledWith(KID);
+    expect(client.verifyProfilePin).not.toHaveBeenCalled();
+  });
+
+  describe('inside a profile', () => {
+    beforeEach(() => {
+      setActiveProfileId('teen');
+      client.getCachedProfiles.mockReturnValue(state);
+    });
+
+    it("asks for a profile's own PIN before opening it, and refuses a wrong one", async () => {
+      client.verifyProfilePin.mockImplementation(
+        async (_id: string | null, pin: string) => pin === '2222',
+      );
+      render(<ProfilesDialog books={books} onClose={() => {}} />);
+      await screen.findByText('You are using the profile Teen.');
+      expect(screen.queryByText('Add profile')).toBeNull();
+
+      fireEvent.click(screen.getAllByText('Switch')[1]!);
+      fireEvent.change(await screen.findByLabelText('PIN'), { target: { value: '9999' } });
+      fireEvent.click(screen.getByText('Open'));
+      await screen.findByText('Wrong PIN.');
+      expect(client.switchProfile).not.toHaveBeenCalled();
+
+      fireEvent.change(screen.getByLabelText('PIN'), { target: { value: '2222' } });
+      fireEvent.click(screen.getByText('Open'));
+      await waitFor(() => expect(client.switchProfile).toHaveBeenCalledWith(KID));
+      expect(client.verifyProfilePin).toHaveBeenLastCalledWith(KID, '2222');
+    });
+
+    it('asks for the master PIN to go back to the main profile', async () => {
+      client.verifyProfilePin.mockResolvedValue(true);
+      render(<ProfilesDialog books={books} onClose={() => {}} />);
+      await screen.findByText('You are using the profile Teen.');
+      fireEvent.click(screen.getAllByText('Switch')[0]!);
+      fireEvent.change(await screen.findByLabelText('PIN'), { target: { value: '1111' } });
+      fireEvent.click(screen.getByText('Open'));
+      await waitFor(() => expect(client.switchProfile).toHaveBeenCalledWith(null));
+      expect(client.verifyProfilePin).toHaveBeenLastCalledWith(null, '1111');
+    });
+
+    it('switches straight to a profile that has no PIN', async () => {
+      setActiveProfileId(KID);
+      client.getCachedProfiles.mockReturnValue(state);
+      render(<ProfilesDialog books={books} onClose={() => {}} />);
+      await screen.findByText('You are using the profile Kid.');
+      fireEvent.click(screen.getAllByText('Switch')[1]!);
+      expect(client.switchProfile).toHaveBeenCalledWith('teen');
+      expect(client.verifyProfilePin).not.toHaveBeenCalled();
+    });
   });
 });

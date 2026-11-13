@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { corsAllMethods, runMiddleware } from '@/utils/cors';
 import { createSupabaseAdminClient } from '@/utils/supabase';
+import { getBooksInUseByProfiles } from '@/libs/profiles/api';
 import { PROFILE_HEADER } from '@/libs/profiles/shared';
 import { validateUserAndToken } from '@/utils/access';
 import { deleteObject } from '@/utils/object';
@@ -51,7 +52,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Fetch all files that match the provided keys and belong to the user
     const { data: fileRecords, error: fileError } = await supabase
       .from('files')
-      .select('id, user_id, file_key')
+      .select('id, user_id, file_key, book_hash')
       .eq('user_id', user.id)
       .in('file_key', fileKeys)
       .is('deleted_at', null);
@@ -71,10 +72,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(403).json({ error: 'Unauthorized access to one or more files' });
     }
 
+    // Books a profile can still see are the account's only copy: keep them.
+    const inUse = await getBooksInUseByProfiles(supabase, user.id, [
+      ...new Set(fileRecords.map((r) => r.book_hash as string | null).filter(Boolean)),
+    ] as string[]);
+
     // Process deletions
     const results = await Promise.allSettled(
       fileRecords.map(async (fileRecord) => {
         try {
+          if (fileRecord.book_hash && inUse.has(fileRecord.book_hash)) {
+            throw new Error('Still available to a profile');
+          }
           // Delete from storage
           await deleteObject(fileRecord.file_key);
 
