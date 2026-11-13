@@ -65,13 +65,15 @@ jobs:
           echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ vars.SUPABASE_ANON_KEY }}" >> "$GITHUB_ENV"
 
       # src-tauri/gen is generated, and only some of its files are tracked: the
-      # Info.plist, asset catalog and Swift sources come from `tauri ios init`.
-      # Restore the tracked ones afterwards so the repo's extensions, entitlements
-      # and project settings win, as the Android release job does.
+      # Info.plist, asset catalog and Swift sources come from `tauri ios init`,
+      # which renders its template only into an empty folder. Start from nothing,
+      # then restore the tracked files so the repo's extensions, entitlements and
+      # project settings win, as the Android release job does.
       - name: Generate the iOS project files
         working-directory: apps/readest-app
         run: |
           brew install xcodegen
+          rm -rf src-tauri/gen/apple
           pnpm tauri ios init --ci
           git checkout -- .
           ls src-tauri/gen/apple/Readest_iOS
