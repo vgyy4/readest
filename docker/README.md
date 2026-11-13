@@ -241,6 +241,34 @@ Not yet: audiobooks made of many files (join them into one m4b first), skip
 silence, volume boost, listening history, and streaming from a server (the file
 is stored on the device like any book).
 
+## Behind Cloudflare Tunnel and Cloudflare Access
+
+Serve everything from one hostname (for example `books.yourdomain.com`) and give the tunnel
+three public-hostname rules, most specific first: path `^/(auth|rest)/v1/` to
+`http://localhost:8000`, path `^/readest-files/` to `http://localhost:9000`, and no path to
+`http://localhost:3000`. Leave the HTTP Host Header empty. Cloudflare caps one request at
+100 MB on the Free plan, which limits uploads of very large books.
+
+If an **Access** application (Google sign-in, one-time PIN, ...) protects the hostname, a
+browser signs in once and carries on. The mobile and desktop apps cannot do that login, so
+pick one:
+
+1. **Bypass policy (simplest).** Add an Access policy with action **Bypass** for the paths
+   `/auth/v1/*`, `/rest/v1/*`, `/readest-files/*` and `/api/*` of that hostname. They are
+   still protected by the app's own login (JWT) and signed storage links; only the web page
+   at `/` stays behind Google. Nothing to build into the apps.
+2. **Service token.** Create a service token (Zero Trust, Access, Service Auth) and a policy
+   with action **Service Auth** for it. Set the repository variable `CF_ACCESS_CLIENT_ID` and
+   the secret `CF_ACCESS_CLIENT_SECRET` before running the iOS/Android workflows; the apps
+   then send `CF-Access-Client-Id/Secret` with every request to your server (and only to it).
+   The secret is inside the app, so keep that app private. In the Access application's CORS
+   settings also turn on **Bypass options requests to origin**, because browsers send
+   preflight requests without credentials.
+
+Access signs users in before they reach the server, so a one-time-PIN or Google login at
+Access works with either option. The app's own account login (email and password) is
+separate; email one-time codes in the app itself would need SMTP set up for the auth service.
+
 ## Database schema
 
 | path                          | role                                                                       |

@@ -64,6 +64,19 @@ jobs:
           echo "NEXT_PUBLIC_SUPABASE_URL=${{ vars.SUPABASE_URL }}" >> "$GITHUB_ENV"
           echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ vars.SUPABASE_ANON_KEY }}" >> "$GITHUB_ENV"
 
+      # Only if the server is behind Cloudflare Access (e.g. Google sign-in on the whole
+      # domain): a service token lets the app through. CF_ACCESS_CLIENT_ID is a variable,
+      # CF_ACCESS_CLIENT_SECRET a secret. It is only sent to your own server's hosts.
+      - name: Let the app through Cloudflare Access
+        if: ${{ vars.CF_ACCESS_CLIENT_ID != '' }}
+        env:
+          CF_ID: ${{ vars.CF_ACCESS_CLIENT_ID }}
+          CF_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          echo "NEXT_PUBLIC_CF_ACCESS_CLIENT_ID=$CF_ID" >> "$GITHUB_ENV"
+          echo "::add-mask::$CF_SECRET"
+          echo "NEXT_PUBLIC_CF_ACCESS_CLIENT_SECRET=$CF_SECRET" >> "$GITHUB_ENV"
+
       # src-tauri/gen is generated, and only some of its files are tracked: the
       # Info.plist, asset catalog and Swift sources come from `tauri ios init`,
       # which renders its template only into an empty folder. Start from nothing,

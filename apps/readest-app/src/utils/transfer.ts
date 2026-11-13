@@ -1,3 +1,4 @@
+import { getAccessHeaders } from '@/libs/cloudflareAccess';
 import { invoke, Channel } from '@tauri-apps/api/core';
 
 export type UploadMethod = 'POST' | 'PUT';
@@ -83,6 +84,9 @@ export const webUpload = (file: File, uploadUrl: string, onProgress?: ProgressHa
     const startTime = Date.now();
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', uploadUrl, true);
+    for (const [name, value] of Object.entries(getAccessHeaders(uploadUrl))) {
+      xhr.setRequestHeader(name, value);
+    }
 
     xhr.upload.onprogress = (event) => {
       if (onProgress && event.lengthComputable) {
@@ -113,6 +117,7 @@ export const webDownload = async (
   onProgress?: ProgressHandler,
   headers?: Record<string, string>,
 ) => {
+  headers = { ...headers, ...getAccessHeaders(downloadUrl) };
   const response = await fetch(downloadUrl, {
     method: 'GET',
     headers: headers ? headers : undefined,
@@ -177,7 +182,10 @@ export const tauriUpload = async (
     url,
     filePath,
     method,
-    headers: headers ?? {},
+    headers: {
+      ...(headers instanceof Map ? Object.fromEntries(headers) : headers),
+      ...getAccessHeaders(url),
+    },
     onProgress,
   });
 };
@@ -204,7 +212,7 @@ export const tauriDownload = async (
     id,
     url,
     filePath,
-    headers: headers ?? {},
+    headers: { ...headers, ...getAccessHeaders(url) },
     onProgress,
     body,
     singleThreaded,

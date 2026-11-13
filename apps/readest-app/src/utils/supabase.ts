@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { getRuntimeConfig } from '@/services/runtimeConfig';
+import { accessFetch } from '@/libs/cloudflareAccess';
 
 const supabaseUrl =
   getRuntimeConfig()?.supabaseUrl ||
@@ -12,11 +13,14 @@ const supabaseAnonKey =
   process.env['NEXT_PUBLIC_SUPABASE_ANON_KEY'] ||
   atob(process.env['NEXT_PUBLIC_DEFAULT_SUPABASE_KEY_BASE64']!);
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  global: { fetch: accessFetch },
+});
 
 export const createSupabaseClient = (accessToken?: string) => {
   return createClient(supabaseUrl, supabaseAnonKey, {
     global: {
+      fetch: accessFetch,
       headers: accessToken
         ? {
             Authorization: `Bearer ${accessToken}`,

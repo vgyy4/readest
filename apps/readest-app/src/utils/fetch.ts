@@ -1,6 +1,7 @@
 import { getAccessToken } from './access';
 import { getActiveProfileId } from '@/libs/profiles/active';
 import { PROFILE_HEADER } from '@/libs/profiles/shared';
+import { getAccessHeaders } from '@/libs/cloudflareAccess';
 
 export const fetchWithTimeout = (url: string, options: RequestInit = {}, timeout = 10000) => {
   const controller = new AbortController();
@@ -22,6 +23,7 @@ export const fetchWithAuth = async (url: string, options: RequestInit) => {
   const headers = {
     ...options.headers,
     Authorization: `Bearer ${token}`,
+    ...getAccessHeaders(url),
     ...(profileId ? { [PROFILE_HEADER]: profileId } : {}),
   };
 
