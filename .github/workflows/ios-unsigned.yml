@@ -76,7 +76,10 @@ jobs:
           rm -rf src-tauri/gen/apple
           pnpm tauri ios init --ci
           git checkout -- .
-          ls src-tauri/gen/apple/Readest_iOS
+          # Regenerate from the repo's own project.yml: that is what writes the
+          # widget's Info.plist (declared there, not tracked).
+          (cd src-tauri/gen/apple && xcodegen generate)
+          ls src-tauri/gen/apple/Readest_iOS src-tauri/gen/apple/ReadestWidget
 
       # The project hard-codes a signing team on each target, which outranks any
       # xcconfig override, so switch signing off in the project itself (the app,
