@@ -1,8 +1,9 @@
 /**
  * Cloudflare Access support. When the server sits behind an Access application (for
  * example a Google sign-in on the whole domain), the apps cannot do that browser login, so
- * they present a service token instead: set `NEXT_PUBLIC_CF_ACCESS_CLIENT_ID` and
- * `NEXT_PUBLIC_CF_ACCESS_CLIENT_SECRET` when building. The token is only ever sent to the
+ * they present a service token instead: enter it with the server address on the sign-in
+ * screen (or set `NEXT_PUBLIC_CF_ACCESS_CLIENT_ID` and `NEXT_PUBLIC_CF_ACCESS_CLIENT_SECRET`
+ * when building). The token is only ever sent to the
  * configured server's own hosts, never to anyone else.
  */
 export const ACCESS_ID_HEADER = 'CF-Access-Client-Id';
@@ -17,17 +18,22 @@ const hostOf = (value: string | undefined) => {
   }
 };
 
+const runtime = () => (typeof window === 'undefined' ? undefined : window.__READEST_RUNTIME_CONFIG);
+
 const allowedHosts = () =>
   [
     hostOf(process.env['NEXT_PUBLIC_API_BASE_URL']),
     hostOf(process.env['NEXT_PUBLIC_SUPABASE_URL']),
+    hostOf(runtime()?.apiBaseUrl),
+    hostOf(runtime()?.supabaseUrl),
     ...(process.env['NEXT_PUBLIC_CF_ACCESS_HOSTS'] ?? '').split(',').map((h) => h.trim()),
   ].filter(Boolean);
 
 /** The service-token headers for a request to `url`, or none if it is not our server. */
 export const getAccessHeaders = (url: string): Record<string, string> => {
-  const id = process.env['NEXT_PUBLIC_CF_ACCESS_CLIENT_ID'];
-  const secret = process.env['NEXT_PUBLIC_CF_ACCESS_CLIENT_SECRET'];
+  const id = runtime()?.cfAccessClientId ?? process.env['NEXT_PUBLIC_CF_ACCESS_CLIENT_ID'];
+  const secret =
+    runtime()?.cfAccessClientSecret ?? process.env['NEXT_PUBLIC_CF_ACCESS_CLIENT_SECRET'];
   if (!id || !secret) return {};
   const host = hostOf(url);
   if (!host || !allowedHosts().includes(host)) return {};

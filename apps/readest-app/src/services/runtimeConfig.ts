@@ -6,6 +6,9 @@ export interface ReadestRuntimeConfig {
   storageFixedQuota?: number;
   translationFixedQuota?: number;
   fontBaseUrl?: string;
+  /** Cloudflare Access service token entered on the sign-in screen (native apps). */
+  cfAccessClientId?: string;
+  cfAccessClientSecret?: string;
 }
 
 declare global {

@@ -62,3 +62,23 @@ describe('accessFetch', () => {
     spy.mockRestore();
   });
 });
+
+describe('a server chosen on the sign-in screen', () => {
+  afterEach(() => {
+    delete (window as { __READEST_RUNTIME_CONFIG?: unknown }).__READEST_RUNTIME_CONFIG;
+  });
+
+  it('uses the token and host saved with it, without any build-time setting', () => {
+    (window as { __READEST_RUNTIME_CONFIG?: unknown }).__READEST_RUNTIME_CONFIG = {
+      apiBaseUrl: 'https://mine.example.com',
+      supabaseUrl: 'https://mine.example.com',
+      cfAccessClientId: 'rt-id',
+      cfAccessClientSecret: 'rt-secret',
+    };
+    expect(getAccessHeaders('https://mine.example.com/auth/v1/token')).toEqual({
+      'CF-Access-Client-Id': 'rt-id',
+      'CF-Access-Client-Secret': 'rt-secret',
+    });
+    expect(getAccessHeaders('https://other.example.org/')).toEqual({});
+  });
+});

@@ -5,6 +5,7 @@ import { ViewTransitions } from 'next-view-transitions';
 import { EnvProvider } from '@/context/EnvContext';
 import Providers from '@/components/Providers';
 import { UI_STYLE_BOOT_SCRIPT } from '@/libs/uiStyle';
+import { SERVER_BOOT_SCRIPT } from '@/libs/serverConfig';
 
 import '../styles/globals.css';
 import '../styles/ui-style.css';
@@ -142,6 +143,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     >
       <head>
         <script dangerouslySetInnerHTML={{ __html: UI_STYLE_BOOT_SCRIPT }} />
+        {process.env['NEXT_PUBLIC_APP_PLATFORM'] === 'tauri' ? (
+          <script dangerouslySetInnerHTML={{ __html: SERVER_BOOT_SCRIPT }} />
+        ) : null}
         {shouldInjectRuntimeConfig ? (
           <Script src='/runtime-config.js' strategy='beforeInteractive' />
         ) : null}

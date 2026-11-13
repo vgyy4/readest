@@ -200,11 +200,16 @@ profile still has it.
 
 ### Pointing the mobile and desktop apps at your server
 
-The apps read the server addresses at build time. Build with
-`NEXT_PUBLIC_API_BASE_URL` (your site URL), `NEXT_PUBLIC_SUPABASE_URL` and
-`NEXT_PUBLIC_SUPABASE_ANON_KEY`; iOS requires `https://` for a non-local
-server. The iOS workflow in this fork reads them from the repository variables
-`API_BASE_URL`, `SUPABASE_URL` and `SUPABASE_ANON_KEY` when they are set.
+The apps are not built for one server. On the sign-in screen, tap **Server: Readest cloud**,
+type your server's address (for example `books.example.com`) and **Connect**. The app asks
+`https://<address>/api/server-info` for the Supabase address and key, remembers them on the
+device, and reloads. **Use Readest cloud** switches back. If the server is behind Cloudflare
+Access, open **Cloudflare Access (optional)** on the same panel and enter a service token.
+Switching servers signs the device out of the old one. iOS requires `https://` for a
+non-local server.
+
+The `API_BASE_URL`, `SUPABASE_URL` and `SUPABASE_ANON_KEY` repository variables of the
+iOS/Android workflows are now optional: they only set the server a build starts with.
 
 ## Audiobooks (this fork)
 
