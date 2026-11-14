@@ -1,6 +1,7 @@
 import { FileSystem, SaveLibraryBooksOptions } from '@/types/system';
 import { Book } from '@/types/book';
 import { getLibraryFilename } from '@/utils/book';
+import { libraryFilenameFor } from '@/libs/profiles/files';
 import { safeLoadJSON, safeSaveJSON } from './persistence';
 
 const COVER_CONCURRENCY = 20;
@@ -59,4 +60,30 @@ export async function saveLibraryBooks(
   for (const book of existing) merged.set(book.hash, book);
   for (const book of incoming) merged.set(book.hash, book); // incoming wins per hash
   await safeSaveJSON(fs, getLibraryFilename(), 'Books', Array.from(merged.values()));
+}
+
+/** One book from another profile's library on this device (the files themselves are shared). */
+export async function loadBookFromProfileLibrary(
+  fs: FileSystem,
+  profileId: string | null,
+  hash: string,
+): Promise<Book | null> {
+  const books = await safeLoadJSON<Book[]>(fs, libraryFilenameFor(profileId), 'Books', []);
+  return books.find((b) => b.hash === hash) ?? null;
+}
+
+/** Write one book's row back into another profile's library, leaving its other books alone. */
+export async function saveBookToProfileLibrary(
+  fs: FileSystem,
+  profileId: string | null,
+  book: Book,
+): Promise<void> {
+  const filename = libraryFilenameFor(profileId);
+  const books = await safeLoadJSON<Book[]>(fs, filename, 'Books', []);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { coverImageUrl, ...row } = book;
+  const next = books.some((b) => b.hash === book.hash)
+    ? books.map((b) => (b.hash === book.hash ? row : b))
+    : books;
+  await safeSaveJSON(fs, filename, 'Books', next);
 }

@@ -120,6 +120,49 @@ describe('useBookTransferActions upload routing (issue #5062)', () => {
   });
 });
 
+describe('pressing Upload again while the book is already uploading', () => {
+  it('sends a file-backend upload once, however many times it is pressed', async () => {
+    routing.readestEnabled = false;
+    routing.backends = ['webdav'];
+    let finish: (ok: boolean) => void = () => {};
+    runFileBookUpload.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((res) => {
+          finish = res;
+        }),
+    );
+
+    const { result } = setup();
+    const book = makeBook();
+    const first = result.current.handleBookUpload(book);
+    const second = result.current.handleBookUpload(book);
+    const third = result.current.handleBookUpload(book);
+    finish(true);
+    await Promise.all([first, second, third]);
+
+    expect(runFileBookUpload).toHaveBeenCalledTimes(1);
+    // Once it is done, pressing Upload is a new request again.
+    await result.current.handleBookUpload(book);
+    expect(runFileBookUpload).toHaveBeenCalledTimes(2);
+  });
+
+  it('says so instead of queueing it again when it is already in the transfer queue', async () => {
+    routing.readestEnabled = true;
+    routing.backends = [];
+    const { useTransferStore } = await import('@/store/transferStore');
+    useTransferStore.setState({ transfers: {} });
+    useTransferStore.getState().addTransfer('book-1', 'Title', 'upload');
+    const dispatchSpy = vi.spyOn(eventDispatcher, 'dispatch');
+
+    const { result } = setup();
+    await result.current.handleBookUpload(makeBook());
+
+    const toast = dispatchSpy.mock.calls.find(([event]) => event === 'toast');
+    expect(toast?.[1]).toMatchObject({ message: 'Already uploading: Title' });
+    useTransferStore.setState({ transfers: {} });
+  });
+});
+
 describe('useBookTransferActions download routing (issue #5062)', () => {
   it('uses the native (queue-backed) path when the book is already in Readest Cloud storage', async () => {
     routing.readestEnabled = true;

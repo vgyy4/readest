@@ -7,6 +7,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useSettingsStore } from '@/store/settingsStore';
 import { eventDispatcher } from '@/utils/event';
 import { transferManager } from '@/services/transferManager';
+import { useTransferStore } from '@/store/transferStore';
 import {
   getActiveFileSyncBackends,
   isReadestCloudEnabled,
@@ -21,6 +22,9 @@ interface BookDownloadOptions {
   // hundreds.
   silent?: boolean;
 }
+
+// Books being sent to a file backend right now (those uploads are not in the transfer queue).
+const fileUploadsInFlight = new Set<string>();
 
 /**
  * Explicit per-book Upload/Download routing (#5062) — cloud sync providers are
@@ -44,13 +48,35 @@ export const useBookTransferActions = (
       const backends = getActiveFileSyncBackends(settingsNow);
       const readest = isReadestCloudEnabled(settingsNow);
 
+      // Pressing Upload again while the book is still going up changes nothing: it must not
+      // start the same upload a second time.
+      const alreadyQueued =
+        readest && !!useTransferStore.getState().getTransferByBookHash(book.hash, 'upload');
+      const alreadySending = backends.length > 0 && fileUploadsInFlight.has(book.hash);
+
       // An explicit Upload must reach EVERY destination the user selected
       // (#5062), not just the first one.
-      const pushed = backends.length > 0 ? await runFileBookUpload(envConfig, book) : false;
+      let pushed = false;
+      if (backends.length > 0 && !alreadySending) {
+        fileUploadsInFlight.add(book.hash);
+        try {
+          pushed = await runFileBookUpload(envConfig, book);
+        } finally {
+          fileUploadsInFlight.delete(book.hash);
+        }
+      }
       // Readest Cloud uploads go through the transfer queue (resumable, with its
       // own progress panel), so it reports "queued", not "uploaded".
       const queued = readest ? !!transferManager.queueUpload(book, 1, { manual: true }) : false;
 
+      if (alreadyQueued || (alreadySending && !pushed)) {
+        eventDispatcher.dispatch('toast', {
+          type: 'info',
+          timeout: 2000,
+          message: _('Already uploading: {{title}}', { title: book.title }),
+        });
+        return true;
+      }
       if (queued) {
         eventDispatcher.dispatch('toast', {
           type: 'info',

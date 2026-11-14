@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { BaseDir } from '@/types/system';
+import { getActiveProfileId } from '@/libs/profiles/active';
 
 export type TransferType = 'upload' | 'download' | 'delete';
 export type TransferStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'cancelled';
@@ -47,6 +48,11 @@ export interface TransferItem {
   isBackground: boolean;
   /** Started by the user (a button), not by an import: it may use mobile data. */
   manual?: boolean;
+  /**
+   * The profile that asked for it (null = the main profile). Missing on rows saved before
+   * profiles were recorded: those belong to whoever is active.
+   */
+  profileId?: string | null;
 }
 
 interface TransferState {
@@ -133,6 +139,10 @@ interface TransferState {
   restoreTransfers: (transfers: Record<string, TransferItem>, isQueuePaused: boolean) => void;
 }
 
+/** Is this transfer the active profile's (rows saved before profiles were recorded count as everyone's)? */
+export const isOwnedByActiveProfile = (t: TransferItem): boolean =>
+  t.profileId === undefined || t.profileId === getActiveProfileId();
+
 const generateTransferId = (): string => {
   return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 };
@@ -175,6 +185,7 @@ export const useTransferStore = create<TransferState>((set, get) => ({
       priority,
       isBackground,
       manual,
+      profileId: getActiveProfileId(),
     };
 
     set((state) => ({
@@ -403,6 +414,7 @@ export const useTransferStore = create<TransferState>((set, get) => ({
         t.kind === 'book' &&
         t.bookHash === bookHash &&
         t.type === type &&
+        isOwnedByActiveProfile(t) &&
         ['pending', 'in_progress'].includes(t.status),
     );
   },

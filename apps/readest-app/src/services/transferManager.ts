@@ -1,6 +1,11 @@
 import { Book } from '@/types/book';
 import { AppService, BaseDir } from '@/types/system';
-import { useTransferStore, TransferItem, ReplicaTransferFile } from '@/store/transferStore';
+import {
+  useTransferStore,
+  isOwnedByActiveProfile,
+  TransferItem,
+  ReplicaTransferFile,
+} from '@/store/transferStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { isReadestCloudStorageActive } from '@/services/sync/cloudSyncProvider';
 import { TranslationFunc } from '@/hooks/useTranslation';
@@ -404,6 +409,7 @@ class TransferManager {
   retryTransfer(transferId: string): void {
     const store = useTransferStore.getState();
     store.retryTransfer(transferId);
+    this.dropDuplicateTransfers();
     this.persistQueue();
     this.processQueue();
   }
@@ -414,6 +420,7 @@ class TransferManager {
     failed.forEach((transfer) => {
       store.retryTransfer(transfer.id);
     });
+    this.dropDuplicateTransfers();
     this.persistQueue();
     this.processQueue();
   }
@@ -471,9 +478,10 @@ class TransferManager {
     this.refreshNetworkKind();
     const held = this.automaticUploadsHeld();
     const waiting = (t: TransferItem) => held && this.isAutomaticBookUpload(t);
+    this.dropDuplicateTransfers();
     const pending = store
       .getPendingTransfers()
-      .filter((t) => !this.isDeferredBookUpload(t) && !waiting(t));
+      .filter((t) => !this.isDeferredBookUpload(t) && !waiting(t) && !this.mustWaitForOwner(t));
     if (held && store.getPendingTransfers().some(waiting)) this.scheduleWifiRecheck();
     const activeCount = store.getActiveTransfers().length;
     const maxConcurrent = store.maxConcurrent;
@@ -497,9 +505,48 @@ class TransferManager {
     const newStore = useTransferStore.getState();
     const processable = newStore
       .getPendingTransfers()
-      .filter((t) => !this.isDeferredBookUpload(t) && !waiting(t));
+      .filter((t) => !this.isDeferredBookUpload(t) && !waiting(t) && !this.mustWaitForOwner(t));
     if (processable.length > 0 && !newStore.isQueuePaused) {
       setTimeout(() => this.processQueue(), 100);
+    }
+  }
+
+  /** Was this book transfer asked for by a profile other than the one in use now? */
+  private isOwnedElsewhere(t: TransferItem): boolean {
+    return t.kind === 'book' && !isOwnedByActiveProfile(t);
+  }
+
+  /**
+   * An upload carries the same file whoever asks, so another profile's keeps going after a
+   * switch. Downloads and deletions act with the profile's own access on the server, so they
+   * wait until that profile is back.
+   */
+  private mustWaitForOwner(t: TransferItem): boolean {
+    return this.isOwnedElsewhere(t) && t.type !== 'upload';
+  }
+
+  /**
+   * Never move the same book the same way twice at once: a retried copy, a second press or a
+   * row restored next to a new one would upload (or download) the file again. The earliest row
+   * wins; the others are set aside (like policy cancellations: not failures, not retryable).
+   */
+  private dropDuplicateTransfers(): void {
+    const store = useTransferStore.getState();
+    const keyOf = (t: TransferItem) => `${t.bookHash}|${t.type}|${t.profileId ?? ''}`;
+    const seen = new Set(
+      store
+        .getActiveTransfers()
+        .filter((t) => t.kind === 'book')
+        .map(keyOf),
+    );
+    const pending = store
+      .getPendingTransfers()
+      .filter((t) => t.kind === 'book')
+      .sort((a, b) => a.createdAt - b.createdAt);
+    for (const t of pending) {
+      const key = keyOf(t);
+      if (seen.has(key)) store.setTransferStatus(t.id, 'cancelled', undefined, 'policy');
+      else seen.add(key);
     }
   }
 
@@ -674,6 +721,18 @@ class TransferManager {
     _abortController: AbortController,
   ): Promise<void> {
     const _ = this._!;
+
+    // Another profile's upload (the app was switched to someone else): take the book from that
+    // profile's library and record the result there, not in the library now on screen.
+    if (transfer.type === 'upload' && this.isOwnedElsewhere(transfer)) {
+      const owner = transfer.profileId ?? null;
+      const theirs = await this.appService!.loadBookFromProfileLibrary(owner, transfer.bookHash);
+      if (!theirs) throw new Error(_('Book not found in library'));
+      await this.appService!.uploadBook(theirs, progressHandler);
+      await this.appService!.saveBookToProfileLibrary(owner, theirs);
+      return;
+    }
+
     const library = this.getLibrary!();
     const book = library.find((b) => b.hash === transfer.bookHash);
 

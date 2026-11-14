@@ -227,6 +227,8 @@ export interface AppService {
   loadFeeds(): Promise<RssFeed[]>;
   saveFeeds(feeds: RssFeed[]): Promise<void>;
   loadLibraryBooks(): Promise<Book[]>;
+  loadBookFromProfileLibrary(profileId: string | null, hash: string): Promise<Book | null>;
+  saveBookToProfileLibrary(profileId: string | null, book: Book): Promise<void>;
   saveLibraryBooks(books: Book[], options?: SaveLibraryBooksOptions): Promise<void>;
   getCoverImageUrl(book: Book): string;
   getCoverImageBlobUrl(book: Book): Promise<string>;

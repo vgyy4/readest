@@ -498,6 +498,14 @@ export abstract class BaseAppService implements AppService {
     return LibrarySvc.loadLibraryBooks(this.fs, this.generateCoverImageUrl.bind(this));
   }
 
+  async loadBookFromProfileLibrary(profileId: string | null, hash: string): Promise<Book | null> {
+    return LibrarySvc.loadBookFromProfileLibrary(this.fs, profileId, hash);
+  }
+
+  async saveBookToProfileLibrary(profileId: string | null, book: Book): Promise<void> {
+    return LibrarySvc.saveBookToProfileLibrary(this.fs, profileId, book);
+  }
+
   // Prompt for storage permission at most once per session (see saveLibraryBooks).
   private storagePermissionRequested = false;
 
