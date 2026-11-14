@@ -109,43 +109,47 @@ export const useAudiobook = (book: Book) => {
   const blobUrlRef = useRef('');
   const sessionRef = useRef<ReturnType<typeof createAudiobookSession> | null>(null);
 
-  const persist = useCallback(
-    async (withLibrary: boolean) => {
-      if (!appService) return;
-      const { position: at, duration: total } = latest.current;
-      if (total <= 0) return;
-      const progress = progressFromPosition(at, total);
-      const stamp = Date.now();
-      lastSaved.current.config = stamp;
-      const config = await appService.loadBookConfig(book, settings);
-      await appService.saveBookConfig(
-        book,
-        {
-          ...INIT_BOOK_CONFIG,
-          ...config,
-          location: `${AUDIO_LOCATION}${progress[0]}`,
-          progress,
-          updatedAt: stamp,
-        },
-        settings,
-      );
-      if (!withLibrary) return;
-      lastSaved.current.library = stamp;
-      const stored = useLibraryStore.getState().getBookByHash(book.hash) ?? book;
-      const finished = total - at <= FINISHED_WITHIN_SECONDS;
-      const status = finished
-        ? 'finished'
-        : stored.readingStatus && stored.readingStatus !== 'unread'
-          ? stored.readingStatus
-          : 'reading';
-      const next =
-        status === stored.readingStatus
-          ? { ...stored, updatedAt: stamp }
-          : withReadingStatus(stored, status);
-      await updateBook(envConfig, { ...next, progress });
-    },
-    [appService, book, envConfig, settings, updateBook],
-  );
+  // Saving reads these at the moment it runs. It must not be rebuilt when they change: every
+  // save replaces the book in the library, and a save function that changes with the book
+  // would be flushed again by the effect below, which saves again, without end.
+  const live = useRef({ book, settings, envConfig, appService, updateBook });
+  live.current = { book, settings, envConfig, appService, updateBook };
+
+  const persist = useCallback(async (withLibrary: boolean) => {
+    const { book, settings, envConfig, appService, updateBook } = live.current;
+    if (!appService) return;
+    const { position: at, duration: total } = latest.current;
+    if (total <= 0) return;
+    const progress = progressFromPosition(at, total);
+    const stamp = Date.now();
+    lastSaved.current.config = stamp;
+    const config = await appService.loadBookConfig(book, settings);
+    await appService.saveBookConfig(
+      book,
+      {
+        ...INIT_BOOK_CONFIG,
+        ...config,
+        location: `${AUDIO_LOCATION}${progress[0]}`,
+        progress,
+        updatedAt: stamp,
+      },
+      settings,
+    );
+    if (!withLibrary) return;
+    lastSaved.current.library = stamp;
+    const stored = useLibraryStore.getState().getBookByHash(book.hash) ?? book;
+    const finished = total - at <= FINISHED_WITHIN_SECONDS;
+    const status = finished
+      ? 'finished'
+      : stored.readingStatus && stored.readingStatus !== 'unread'
+        ? stored.readingStatus
+        : 'reading';
+    const next =
+      status === stored.readingStatus
+        ? { ...stored, updatedAt: stamp }
+        : withReadingStatus(stored, status);
+    await updateBook(envConfig, { ...next, progress });
+  }, []);
 
   /** The address for the <audio> element for one way of reaching the file. */
   const sourceUrl = async (kind: PlaybackSource): Promise<string> => {

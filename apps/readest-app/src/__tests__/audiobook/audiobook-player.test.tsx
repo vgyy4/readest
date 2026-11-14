@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Book } from '@/types/book';
 import AudiobookPlayer from '@/components/audiobook/AudiobookPlayer';
@@ -376,5 +377,34 @@ describe('AudiobookPlayer', () => {
       fireEvent.error(audio());
       expect(await screen.findByRole('alert')).toBeTruthy();
     });
+  });
+});
+
+describe('saving progress with a library that hands back a new book each time', () => {
+  // The real library store replaces the book object on every update, which re-renders the player
+  // with a new `book` prop. Saving must not feed on that: one pause is one save, not a loop.
+  const Host = () => {
+    const [current, setCurrent] = useState<Book>(book);
+    mocks.updateBook.mockImplementation(async (_env: unknown, next: Book) => {
+      setCurrent({ ...next });
+    });
+    return <AudiobookPlayer book={current} onBack={() => {}} />;
+  };
+
+  it('saves once per pause, not again and again', async () => {
+    mocks.updateBook.mockClear();
+    mocks.appService.saveBookConfig.mockClear();
+    render(<Host />);
+    await loaded();
+    audio().currentTime = 60;
+    fireEvent.timeUpdate(audio());
+    fireEvent.click(screen.getByLabelText('Play'));
+    fireEvent.play(audio());
+    fireEvent.click(await screen.findByLabelText('Pause'));
+    fireEvent.pause(audio());
+    await waitFor(() => expect(mocks.updateBook).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(mocks.updateBook.mock.calls.length).toBeLessThanOrEqual(2);
+    expect(mocks.appService.saveBookConfig.mock.calls.length).toBeLessThanOrEqual(3);
   });
 });
