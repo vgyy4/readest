@@ -60,13 +60,16 @@ export const uploadInParts = async (
     throw error;
   }
   const { uploadId, parts } = started;
-  if (!uploadId || !parts?.length) throw new Error('The server did not start the upload');
-  // The server plans the parts; check it agrees with what the file needs.
-  if (parts.length !== planParts(fileSize).length)
-    throw new Error('The server planned the upload wrongly');
+  if (!uploadId) throw new Error('The server did not start the upload');
 
   let sentBefore = 0;
   try {
+    // Everything after the server has started an upload is inside this try: whatever goes wrong,
+    // the upload is thrown away, so the server is not left with a record of a file that never came.
+    if (!parts?.length) throw new Error('The server did not start the upload');
+    // The server plans the parts; check it agrees with what the file needs.
+    if (parts.length !== planParts(fileSize).length)
+      throw new Error('The server planned the upload wrongly');
     for (const part of parts) {
       for (let attempt = 1; ; attempt++) {
         try {

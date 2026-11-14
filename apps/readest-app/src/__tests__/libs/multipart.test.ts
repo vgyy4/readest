@@ -123,11 +123,33 @@ describe('uploadInParts', () => {
     ).rejects.toBeInstanceOf(MultipartUnsupported);
   });
 
-  it('rejects a plan from the server that does not match the file', async () => {
-    const request = vi.fn(async () => ({ uploadId: 'u', parts: [parts[0]!] }));
+  it('rejects a plan from the server that does not match the file, and throws the upload away', async () => {
+    const request = vi.fn(async (body: Record<string, unknown>) =>
+      body['action'] === 'start' ? { uploadId: 'u', parts: [parts[0]!] } : {},
+    );
     await expect(
       uploadInParts('f', size, undefined, undefined, { request, putPart: async () => {} }),
     ).rejects.toThrow(/planned/);
+    // Without this the server keeps a record of a file that never arrives.
+    expect(request.mock.calls.at(-1)![0]).toMatchObject({ action: 'abort', uploadId: 'u' });
+  });
+
+  it('throws the upload away when the server starts one it cannot describe', async () => {
+    const request = vi.fn(async (body: Record<string, unknown>) =>
+      body['action'] === 'start' ? { uploadId: 'u', parts: [] } : {},
+    );
+    await expect(
+      uploadInParts('f', size, undefined, undefined, { request, putPart: async () => {} }),
+    ).rejects.toThrow(/did not start/);
+    expect(request.mock.calls.at(-1)![0]).toMatchObject({ action: 'abort', uploadId: 'u' });
+  });
+
+  it('cannot abort an upload the server never gave an id for', async () => {
+    const request = vi.fn(async () => ({}));
+    await expect(
+      uploadInParts('f', size, undefined, undefined, { request, putPart: async () => {} }),
+    ).rejects.toThrow(/did not start/);
+    expect(request).toHaveBeenCalledTimes(1); // only the start
   });
 });
 

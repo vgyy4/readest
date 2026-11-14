@@ -82,7 +82,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         ]);
         if (insertError) return res.status(500).json({ error: insertError.message });
       }
-      const size = existing?.file_size ?? fileSize;
+      // An earlier attempt at this file may have left a record (the upload was killed). Plan the
+      // parts for the file being sent now, and correct the record, or the client and the server
+      // disagree about how many parts there are.
+      if (existing && existing.file_size !== fileSize) {
+        const { error: resizeError } = await supabase
+          .from('files')
+          .update({ file_size: fileSize })
+          .eq('user_id', storageOwnerId)
+          .eq('file_key', fileKey);
+        if (resizeError) return res.status(500).json({ error: resizeError.message });
+      }
+      const size = fileSize;
       const newUploadId = await createMultipartUpload(fileKey);
       const parts = await Promise.all(
         planParts(size).map(async (part) => ({

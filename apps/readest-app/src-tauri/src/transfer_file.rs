@@ -316,7 +316,12 @@ pub async fn upload_file(
         file.seek(std::io::SeekFrom::Start(start)).await?;
     }
 
-    let client = reqwest::Client::new();
+    // A stalled connection must end in an error the app can retry, not hang for ever. One request is
+    // at most one 50 MB part (or a file under 80 MB): half an hour is slower than any real link.
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(30 * 60))
+        .build()?;
     let mut request = match method.to_uppercase().as_str() {
         "POST" => client.post(url),
         "PUT" => client.put(url),
