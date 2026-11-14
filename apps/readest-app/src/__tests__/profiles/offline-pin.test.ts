@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const fetchMock = vi.hoisted(() => vi.fn());
 vi.mock('@/services/environment', () => ({ getAPIBaseUrl: () => 'https://server.test/api' }));
@@ -63,6 +63,45 @@ describe('remembered PINs', () => {
     expect(await matchesRememberedPin(null, '4821')).toBeNull();
     expect(await matchesRememberedPin(KID, '7305')).toBeNull();
     expect(await matchesRememberedPin('other', '1234')).toBe(true);
+  });
+});
+
+describe('checkProfilePin without a connection that answers', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('does not even ask the server when the device says it is offline', async () => {
+    await rememberPin(KID, '7305');
+    vi.stubGlobal('navigator', { ...navigator, onLine: false });
+    expect(await checkProfilePin(KID, '7305')).toBe('ok');
+    expect(await checkProfilePin(KID, '1111')).toBe('wrong');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('says it cannot tell, offline, for a PIN never checked on this device', async () => {
+    vi.stubGlobal('navigator', { ...navigator, onLine: false });
+    expect(await checkProfilePin(KID, '7305')).toBe('offline-unknown');
+  });
+
+  it('gives up on a server that never answers (the sign-in layer retrying for a long time) and uses what was remembered', async () => {
+    vi.useFakeTimers();
+    await rememberPin(KID, '7305');
+    fetchMock.mockReturnValue(new Promise(() => {}));
+    const result = checkProfilePin(KID, '7305');
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(await result).toBe('ok');
+  });
+
+  it('puts the active profile back after giving up', async () => {
+    vi.useFakeTimers();
+    localStorage.setItem('readest-active-profile', 'someone');
+    fetchMock.mockReturnValue(new Promise(() => {}));
+    const result = checkProfilePin(KID, '7305');
+    await vi.advanceTimersByTimeAsync(10_000);
+    await result;
+    expect(localStorage.getItem('readest-active-profile')).toBe('someone');
   });
 });
 

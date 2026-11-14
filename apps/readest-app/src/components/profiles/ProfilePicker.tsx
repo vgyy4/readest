@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { MdLock } from 'react-icons/md';
 import PinInput from '@/components/PinInput';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -32,6 +32,8 @@ const ProfilePicker: React.FC<ProfilePickerProps> = ({ state, onEnter }) => {
   const [error, setError] = useState('');
   const [shake, setShake] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Which check is the live one: backing out (or starting another) makes an older answer moot.
+  const attempt = useRef(0);
 
   const tiles: Tile[] = [
     { id: null, name: _('Main profile'), avatar: state.mainAvatar, hasPin: state.hasPin },
@@ -52,8 +54,10 @@ const ProfilePicker: React.FC<ProfilePickerProps> = ({ state, onEnter }) => {
 
   const submit = async (value: string) => {
     if (!target || busy) return;
+    const mine = ++attempt.current;
     setBusy(true);
     const result = await checkProfilePin(target.id, value);
+    if (mine !== attempt.current) return; // backed out meanwhile
     setBusy(false);
     if (result === 'ok') {
       // The main profile's PIN is the master PIN: keep it so the admin is not asked again.
@@ -107,7 +111,15 @@ const ProfilePicker: React.FC<ProfilePickerProps> = ({ state, onEnter }) => {
           <p role='alert' className='text-error h-5 text-sm'>
             {error}
           </p>
-          <button type='button' className='btn btn-ghost btn-sm' onClick={() => setTarget(null)}>
+          <button
+            type='button'
+            className='btn btn-ghost btn-sm'
+            onClick={() => {
+              attempt.current++;
+              setBusy(false);
+              setTarget(null);
+            }}
+          >
             {_('Cancel')}
           </button>
         </div>

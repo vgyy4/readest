@@ -113,6 +113,23 @@ export type PinCheck = 'ok' | 'wrong' | 'offline-unknown';
  * is how a profile unlocks switching. Without a connection, a PIN that was accepted before on this
  * device is accepted again (see pinCache); one never checked here cannot be told.
  */
+const PIN_CHECK_TIMEOUT_MS = 6000;
+
+const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('timed out')), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+
 export const checkProfilePin = async (
   profileId: string | null,
   pin?: string,
@@ -120,7 +137,16 @@ export const checkProfilePin = async (
   const active = getActiveProfileId();
   setActiveProfileId(null);
   try {
-    await fetchWithAuth(endpoint('/pin'), json('POST', { action: 'verify', profileId, pin }));
+    // A device that knows it is offline has nothing to ask; and one that thinks it is online may
+    // still never get an answer (the sign-in layer retries a token refresh for a long time), so
+    // the question gets a few seconds before the remembered PIN is used instead.
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      throw new TypeError('offline');
+    }
+    await withTimeout(
+      fetchWithAuth(endpoint('/pin'), json('POST', { action: 'verify', profileId, pin })),
+      PIN_CHECK_TIMEOUT_MS,
+    );
     if (pin) await rememberPin(profileId, pin);
     return 'ok';
   } catch (error) {

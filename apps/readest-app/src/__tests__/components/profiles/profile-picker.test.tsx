@@ -94,6 +94,40 @@ describe('ProfilePicker', () => {
     expect(getSessionPin()).toBe('4321');
   });
 
+  it('can back out of a check that never answers, and try again', async () => {
+    verify.mockReturnValueOnce(new Promise(() => {})); // no connection, no answer
+    const onEnter = vi.fn();
+    render(<ProfilePicker state={state} onEnter={onEnter} />);
+    fireEvent.click(screen.getByRole('button', { name: /Eli/ }));
+    typePin('1234');
+    await waitFor(() => expect(verify).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    verify.mockResolvedValue('ok');
+    fireEvent.click(screen.getByRole('button', { name: /Eli/ }));
+    expect((screen.getByLabelText('PIN') as HTMLInputElement).disabled).toBe(false);
+    typePin('1234');
+    await waitFor(() => expect(onEnter).toHaveBeenCalledWith('kid-2'));
+  });
+
+  it('ignores the answer to a check it was backed out of', async () => {
+    let answer: (v: string) => void = () => {};
+    verify.mockReturnValueOnce(
+      new Promise<string>((res) => {
+        answer = res;
+      }),
+    );
+    const onEnter = vi.fn();
+    render(<ProfilePicker state={state} onEnter={onEnter} />);
+    fireEvent.click(screen.getByRole('button', { name: /Eli/ }));
+    typePin('1234');
+    await waitFor(() => expect(verify).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    answer('ok');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(onEnter).not.toHaveBeenCalled();
+  });
+
   it('can back out of the PIN screen', () => {
     render(<ProfilePicker state={state} onEnter={() => {}} />);
     fireEvent.click(screen.getByRole('button', { name: /Eli/ }));
