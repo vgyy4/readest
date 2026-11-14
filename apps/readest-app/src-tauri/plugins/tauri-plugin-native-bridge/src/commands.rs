@@ -47,6 +47,14 @@ pub(crate) async fn use_background_audio<R: Runtime>(
 }
 
 #[command]
+pub(crate) async fn set_transfer_service<R: Runtime>(
+    app: AppHandle<R>,
+    payload: TransferServiceRequest,
+) -> Result<()> {
+    app.native_bridge().set_transfer_service(payload)
+}
+
+#[command]
 pub(crate) async fn set_selection_suppressed<R: Runtime>(
     app: AppHandle<R>,
     payload: SetSelectionSuppressedRequest,

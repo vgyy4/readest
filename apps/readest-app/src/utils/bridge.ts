@@ -139,6 +139,14 @@ export async function saveImageToGallery(
   });
 }
 
+/**
+ * Android: run (or stop) the foreground service that keeps uploads and downloads going while the
+ * screen is locked or another app is in front. Other platforms have no such service.
+ */
+export async function setTransferService(active: boolean, text?: string): Promise<void> {
+  await invoke('plugin:native-bridge|set_transfer_service', { payload: { active, text } });
+}
+
 export async function invokeUseBackgroundAudio(request: UseBackgroundAudioRequest): Promise<void> {
   await invoke('plugin:native-bridge|use_background_audio', {
     payload: request,

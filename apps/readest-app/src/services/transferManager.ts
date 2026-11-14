@@ -9,6 +9,7 @@ import {
 import { useSettingsStore } from '@/store/settingsStore';
 import { isReadestCloudStorageActive } from '@/services/sync/cloudSyncProvider';
 import { TranslationFunc } from '@/hooks/useTranslation';
+import { setTransferService } from '@/utils/bridge';
 import { createProgressThrottle, ProgressHandler, ProgressPayload } from '@/utils/transfer';
 import { eventDispatcher } from '@/utils/event';
 import { getNetworkKind, type NetworkKind, shouldHoldUpload } from '@/utils/uploadNetwork';
@@ -24,6 +25,9 @@ const RETRY_DELAY_BASE_MS = 2000;
 // transferSpeed changes every call so the store's no-op guard cannot help)
 // (Sentry READEST-2).
 const PROGRESS_THROTTLE_MS = 100;
+/** How long after the last transfer ends the Android service is stopped. */
+const KEEP_ALIVE_IDLE_MS = 15_000;
+
 // Quota failures in a batch import arrive one per book as transfers drain;
 // collapse them into one summary toast per burst instead of N identical toasts.
 const QUOTA_TOAST_FLUSH_MS = 1500;
@@ -54,6 +58,9 @@ class TransferManager {
   private quotaFailureCount = 0;
   private quotaToastTimer: ReturnType<typeof setTimeout> | null = null;
   private wifiRecheckTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Android's foreground service is running, which keeps transfers alive in the background. */
+  private keepAlive = false;
+  private keepAliveStopTimer: ReturnType<typeof setTimeout> | null = null;
   private networkListenersAdded = false;
   private networkKind: NetworkKind = 'unknown';
   private networkKindAt = 0;
@@ -130,6 +137,33 @@ class TransferManager {
       'change',
       wake,
     );
+  }
+
+  /**
+   * Android stops a backgrounded app within minutes unless it runs a foreground service. Keep one
+   * running while any transfer is, and stop it a little after the last one ends (so a queue of
+   * many books is one service run, not a start and a stop for each).
+   */
+  private updateKeepAlive(): void {
+    if (!this.appService?.isAndroidApp) return;
+    const busy = useTransferStore.getState().getActiveTransfers().length > 0;
+    if (busy) {
+      if (this.keepAliveStopTimer) {
+        clearTimeout(this.keepAliveStopTimer);
+        this.keepAliveStopTimer = null;
+      }
+      if (!this.keepAlive) {
+        this.keepAlive = true;
+        void setTransferService(true, this._?.('Transferring books')).catch(() => {});
+      }
+    } else if (this.keepAlive && !this.keepAliveStopTimer) {
+      this.keepAliveStopTimer = setTimeout(() => {
+        this.keepAliveStopTimer = null;
+        if (useTransferStore.getState().getActiveTransfers().length > 0) return;
+        this.keepAlive = false;
+        void setTransferService(false).catch(() => {});
+      }, KEEP_ALIVE_IDLE_MS);
+    }
   }
 
   private scheduleWifiRecheck(): void {
@@ -586,6 +620,7 @@ class TransferManager {
 
     store.setTransferStatus(transfer.id, 'in_progress');
     store.setActiveCount(store.getActiveTransfers().length + 1);
+    this.updateKeepAlive();
 
     const progressThrottle = createProgressThrottle((progress) => {
       const percentage = progress.total > 0 ? (progress.progress / progress.total) * 100 : 0;
@@ -686,6 +721,7 @@ class TransferManager {
 
       const currentStore = useTransferStore.getState();
       currentStore.setActiveCount(Math.max(0, currentStore.getActiveTransfers().length));
+      this.updateKeepAlive();
       this.persistQueue();
 
       // Continue processing

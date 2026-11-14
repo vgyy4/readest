@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DocumentLoader } from '@/libs/document';
 
 const mocks = vi.hoisted(() => {
@@ -34,6 +34,84 @@ const info = {
   artwork: 'cover.png',
   skipSeconds: 20,
 };
+
+describe('createAudiobookSession (native) updates', () => {
+  // The phone works out the position itself from the last state, so the player only needs to
+  // tell it when something changes (play, pause, seek, a new length) and now and then to stay
+  // in step. Telling it four times a second kept the notification and the main thread busy.
+  let native: InstanceType<typeof mocks.FakeNativeSession>;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    native = new mocks.FakeNativeSession();
+    mocks.current = native;
+  });
+  afterEach(() => vi.useRealTimers());
+
+  const playing = (position: number, over: Record<string, unknown> = {}) => ({
+    playing: true,
+    position,
+    duration: 600,
+    speed: 1,
+    ...over,
+  });
+
+  it('does not repeat itself while the book plays on as expected', async () => {
+    const { createAudiobookSession } = await import('@/libs/audiobook/session');
+    const session = createAudiobookSession(actions(), info);
+    session.update(playing(10));
+    for (let i = 1; i <= 20; i++) {
+      vi.advanceTimersByTime(250);
+      session.update(playing(10 + i * 0.25));
+    }
+    expect(native.updatePlaybackState).toHaveBeenCalledTimes(1);
+  });
+
+  it('says so at once when playing starts or stops, or the length changes', async () => {
+    const { createAudiobookSession } = await import('@/libs/audiobook/session');
+    const session = createAudiobookSession(actions(), info);
+    session.update(playing(10));
+    vi.advanceTimersByTime(250);
+    session.update(playing(10.25, { playing: false }));
+    vi.advanceTimersByTime(250);
+    session.update(playing(10.25, { playing: false, duration: 700 }));
+    expect(native.updatePlaybackState).toHaveBeenCalledTimes(3);
+  });
+
+  it('says so at once after a jump', async () => {
+    const { createAudiobookSession } = await import('@/libs/audiobook/session');
+    const session = createAudiobookSession(actions(), info);
+    session.update(playing(10));
+    vi.advanceTimersByTime(250);
+    session.update(playing(300));
+    expect(native.updatePlaybackState).toHaveBeenCalledTimes(2);
+    expect(native.updatePlaybackState).toHaveBeenLastCalledWith({
+      playing: true,
+      position: 300000,
+      duration: 600000,
+    });
+  });
+
+  it('checks in every ten seconds so it never drifts', async () => {
+    const { createAudiobookSession } = await import('@/libs/audiobook/session');
+    const session = createAudiobookSession(actions(), info);
+    session.update(playing(10));
+    vi.advanceTimersByTime(10_500);
+    session.update(playing(20.5));
+    expect(native.updatePlaybackState).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a paused book quiet', async () => {
+    const { createAudiobookSession } = await import('@/libs/audiobook/session');
+    const session = createAudiobookSession(actions(), info);
+    session.update(playing(10, { playing: false }));
+    for (let i = 0; i < 10; i++) {
+      vi.advanceTimersByTime(250);
+      session.update(playing(10, { playing: false }));
+    }
+    expect(native.updatePlaybackState).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('createAudiobookSession (native)', () => {
   let native: InstanceType<typeof mocks.FakeNativeSession>;

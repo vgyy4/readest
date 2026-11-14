@@ -80,6 +80,12 @@ class SaveImageToGalleryRequestArgs {
 }
 
 @InvokeArg
+class TransferServiceRequestArgs {
+    var active: Boolean = false
+    var text: String? = null
+}
+
+@InvokeArg
 class InstallPackageRequestArgs {
     var path: String? = null
 }
@@ -583,6 +589,25 @@ class NativeBridgePlugin(private val activity: Activity): Plugin(activity) {
                 r
             }
             if (isActive) invoke.resolve(ret)
+        }
+    }
+
+    // Run (or stop) the foreground service that keeps uploads and downloads going while the app is
+    // in the background or the screen is locked.
+    @Command
+    fun set_transfer_service(invoke: Invoke) {
+        val args = invoke.parseArgs(TransferServiceRequestArgs::class.java)
+        try {
+            val intent = Intent(activity, TransferService::class.java)
+            if (args.active) {
+                intent.putExtra(TransferService.EXTRA_TEXT, args.text ?: "")
+                ContextCompat.startForegroundService(activity, intent)
+            } else {
+                activity.stopService(intent)
+            }
+            invoke.resolve()
+        } catch (e: Exception) {
+            invoke.reject(e.message ?: "Could not change the transfer service")
         }
     }
 

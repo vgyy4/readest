@@ -58,6 +58,14 @@ pub struct UseBackgroundAudioRequest {
     pub enabled: bool,
 }
 
+/// Start or stop the Android foreground service that keeps transfers going in the background.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferServiceRequest {
+    pub active: bool,
+    pub text: Option<String>,
+}
+
 /// Which piece of the OS selection UI to gate: "gesture" suppresses the
 /// long-press text-selection gesture (iOS, instant highlight), "menu"
 /// suppresses the floating selection toolbar (Android, #5427).

@@ -7,6 +7,12 @@
          ACTION_PROCESS_TEXT, so dictionary lookups land in the system
          browser on some OEM ROMs even when a dictionary is installed
          (issue #4559). -->
+    <!-- Keeps uploads and downloads going while the screen is locked or another app is in front
+         (see TransferService). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <queries>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />
@@ -15,6 +21,10 @@
     </queries>
 
     <application>
+        <service
+            android:name="com.readest.native_bridge.TransferService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
         <!-- Receives the EXTRA_CHOSEN_COMPONENT callback from the
              browser-excluding dictionary chooser so the user's pick is
              remembered and launched directly on subsequent lookups. -->

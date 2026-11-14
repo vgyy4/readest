@@ -71,6 +71,10 @@ impl<R: Runtime> NativeBridge<R> {
         Err(crate::Error::UnsupportedPlatformError)
     }
 
+    pub fn set_transfer_service(&self, _payload: TransferServiceRequest) -> crate::Result<()> {
+        Err(crate::Error::UnsupportedPlatformError)
+    }
+
     pub fn set_selection_suppressed(
         &self,
         _payload: SetSelectionSuppressedRequest,

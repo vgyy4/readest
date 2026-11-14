@@ -26,6 +26,10 @@ export interface SessionState {
   speed: number;
 }
 
+/** Tell the phone the position again when it differs from its own count by this much, or after this long. */
+const RESEND_DRIFT_MS = 1500;
+const RESEND_EVERY_MS = 10_000;
+
 /**
  * Lock screen, notification and headset controls for the audiobook player.
  * It reuses the app's media session layer: the native foreground-service session
@@ -63,14 +67,24 @@ export const createAudiobookSession = (actions: TransportActions, info: SessionI
       album: info.title,
       artwork: info.artwork,
     });
+    // What the phone was last told. It works out the position itself from that, so it is only
+    // told again when something changes (play, pause, a new length, a jump) and, now and then, so
+    // it cannot drift. Every 250 ms (the player's own clock) kept the notification busy.
+    let last: { playing: boolean; position: number; duration: number; at: number } | null = null;
     return {
       update(state: SessionState) {
         playing = state.playing;
-        void session.updatePlaybackState({
-          playing: state.playing,
-          position: Math.round(state.position * 1000),
-          duration: Math.round(state.duration * 1000),
-        });
+        const now = Date.now();
+        const position = Math.round(state.position * 1000);
+        const duration = Math.round(state.duration * 1000);
+        if (last && last.playing === state.playing && last.duration === duration) {
+          const expected = last.position + (state.playing ? now - last.at : 0);
+          if (Math.abs(position - expected) < RESEND_DRIFT_MS && now - last.at < RESEND_EVERY_MS) {
+            return;
+          }
+        }
+        last = { playing: state.playing, position, duration, at: now };
+        void session.updatePlaybackState({ playing: state.playing, position, duration });
       },
       dispose() {
         void session.setActive({ active: false });

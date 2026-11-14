@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-set-transfer-service"
+description = "Enables the set_transfer_service command without any pre-configured scope."
+commands.allow = ["set_transfer_service"]
+
+[[permission]]
+identifier = "deny-set-transfer-service"
+description = "Denies the set_transfer_service command without any pre-configured scope."
+commands.deny = ["set_transfer_service"]

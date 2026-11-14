@@ -60,6 +60,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::copy_uri_to_path,
             commands::save_image_to_gallery,
             commands::use_background_audio,
+            commands::set_transfer_service,
             commands::install_package,
             commands::set_system_ui_visibility,
             commands::get_status_bar_height,
