@@ -36,7 +36,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }>;
       const [first, { data: pin }, { data: mainMeta }] = await Promise.all([
         listProfiles('profile_user_id, name, avatar, created_at'),
-        admin.from('profile_pins').select('owner_id').eq('owner_id', ownerId).maybeSingle(),
+        admin
+          .from('profile_pins')
+          .select('owner_id, pin_hash')
+          .eq('owner_id', ownerId)
+          .maybeSingle(),
         admin.from('profile_main_meta').select('avatar').eq('owner_id', ownerId).maybeSingle(),
       ]);
       let { data: profiles, error } = first;
@@ -50,11 +54,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (error) throw error;
       const ids = (profiles ?? []).map((p) => p['profile_user_id'] as string);
       const { data: pins } = ids.length
-        ? await admin.from('profile_user_pins').select('profile_user_id').in('profile_user_id', ids)
+        ? await admin
+            .from('profile_user_pins')
+            .select('profile_user_id, pin_hash')
+            .in('profile_user_id', ids)
         : { data: [] };
       const withPin = new Set((pins ?? []).map((p) => p.profile_user_id as string));
+      // The stored scrypt hashes go to the account's own devices (this list is for the main
+      // session only) so they can check a PIN without a connection. A 4-digit PIN is a lock
+      // against the family, not strong protection: anyone who can read the device's storage can
+      // guess 10,000 codes, as they could with the hash the device remembers after a PIN is used.
+      const verifiers = new Map(
+        (pins ?? []).map((p) => [p.profile_user_id as string, p.pin_hash as string]),
+      );
       return res.status(200).json({
         hasPin: !!pin,
+        mainPinVerifier: (pin?.pin_hash as string | undefined) ?? null,
         mainAvatar: mainMeta?.avatar ?? null,
         ...(needsMigration ? { needsMigration: true } : {}),
         profiles: (profiles ?? []).map((p) => ({
@@ -63,6 +78,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           avatar: (p['avatar'] as string | null | undefined) ?? null,
           createdAt: p['created_at'],
           hasPin: withPin.has(p['profile_user_id'] as string),
+          pinVerifier: verifiers.get(p['profile_user_id'] as string) ?? null,
         })),
       });
     }

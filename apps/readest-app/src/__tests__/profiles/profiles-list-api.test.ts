@@ -96,8 +96,45 @@ describe('GET /api/profiles', () => {
     expect(body['needsMigration']).toBe(true);
     expect(body['hasPin']).toBe(true);
     expect(body['profiles']).toEqual([
-      { id: 'k1', name: 'Noa', avatar: null, createdAt: 't', hasPin: false },
+      { id: 'k1', name: 'Noa', avatar: null, createdAt: 't', hasPin: false, pinVerifier: null },
     ]);
+  });
+
+  it('sends what the server stores to check each PIN, so a device can check them offline', async () => {
+    mocks.master.mockResolvedValue({
+      ownerId: 'owner',
+      admin: adminWith({
+        profiles: () => ({
+          data: [
+            { profile_user_id: 'k1', name: 'Noa', avatar: null, created_at: 't' },
+            { profile_user_id: 'k2', name: 'Eli', avatar: null, created_at: 't' },
+          ],
+          error: null,
+        }),
+        profile_pins: () => ({
+          data: { owner_id: 'owner', pin_hash: 'scrypt$aa$bb' },
+          error: null,
+        }),
+        profile_main_meta: () => ({ data: null, error: null }),
+        profile_user_pins: () => ({
+          data: [{ profile_user_id: 'k1', pin_hash: 'scrypt$cc$dd' }],
+          error: null,
+        }),
+      }),
+    });
+    const { body } = await get();
+    expect(body['hasPin']).toBe(true);
+    expect(body['mainPinVerifier']).toBe('scrypt$aa$bb');
+    const profiles = body['profiles'] as {
+      id: string;
+      hasPin: boolean;
+      pinVerifier: string | null;
+    }[];
+    expect(profiles.find((p) => p.id === 'k1')).toMatchObject({
+      hasPin: true,
+      pinVerifier: 'scrypt$cc$dd',
+    });
+    expect(profiles.find((p) => p.id === 'k2')).toMatchObject({ hasPin: false, pinVerifier: null });
   });
 
   it('still fails on an error that is not about the missing update', async () => {

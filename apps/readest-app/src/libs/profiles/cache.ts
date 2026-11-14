@@ -3,12 +3,19 @@ export interface ProfileInfo {
   name: string;
   /** The profile has a PIN of its own. */
   hasPin?: boolean;
+  /**
+   * What the server stores to check the profile's PIN (`scrypt$salt$hash`), so a PIN can be
+   * checked without a connection. null: no PIN. Missing: a server that does not send it.
+   */
+  pinVerifier?: string | null;
   /** A stock avatar id such as 'av-07'; null until the profile picks one. */
   avatar?: string | null;
 }
 
 export interface ProfilesState {
   hasPin: boolean;
+  /** The master PIN's stored check (see {@link ProfileInfo.pinVerifier}). */
+  mainPinVerifier?: string | null;
   /** The main profile's picture. */
   mainAvatar?: string | null;
   /** The server's database update for pictures has not been applied yet. */

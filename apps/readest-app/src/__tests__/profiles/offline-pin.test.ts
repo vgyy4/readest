@@ -1,4 +1,6 @@
+import { randomBytes, scryptSync } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { CACHE_KEY } from '@/libs/profiles/cache';
 
 const fetchMock = vi.hoisted(() => vi.fn());
 vi.mock('@/services/environment', () => ({ getAPIBaseUrl: () => 'https://server.test/api' }));
@@ -102,6 +104,71 @@ describe('checkProfilePin without a connection that answers', () => {
     await vi.advanceTimersByTimeAsync(10_000);
     await result;
     expect(localStorage.getItem('readest-active-profile')).toBe('someone');
+  });
+});
+
+describe('checkProfilePin offline, from the verifiers the profile list brought', () => {
+  // The server's own scrypt hashes arrive with the list of profiles, so a PIN never typed on this
+  // device can still be checked without a connection.
+  const hash = (pin: string) => {
+    const salt = randomBytes(16);
+    return `scrypt$${salt.toString('hex')}$${scryptSync(pin, salt, 32).toString('hex')}`;
+  };
+  const listWith = (over: Record<string, unknown> = {}) =>
+    localStorage.setItem(
+      CACHE_KEY,
+      JSON.stringify({
+        hasPin: true,
+        mainPinVerifier: hash('4821'),
+        profiles: [
+          { id: KID, name: 'Kid', hasPin: true, pinVerifier: hash('7305') },
+          { id: 'free', name: 'Free', hasPin: false, pinVerifier: null },
+        ],
+        ...over,
+      }),
+    );
+
+  beforeEach(() => {
+    fetchMock.mockRejectedValue(offline());
+  });
+
+  it('opens a profile with its own PIN, though it was never opened on this device', async () => {
+    listWith();
+    expect(await checkProfilePin(KID, '7305')).toBe('ok');
+    expect(await checkProfilePin(KID, '1111')).toBe('wrong');
+  }, 30_000);
+
+  it('opens a profile with the master PIN, as the server does', async () => {
+    listWith();
+    expect(await checkProfilePin(KID, '4821')).toBe('ok');
+  }, 30_000);
+
+  it('opens the main profile with the master PIN only, not a profile PIN', async () => {
+    listWith();
+    expect(await checkProfilePin(null, '4821')).toBe('ok');
+    expect(await checkProfilePin(null, '7305')).toBe('wrong');
+  }, 30_000);
+
+  it('knows a profile without a PIN needs none', async () => {
+    listWith();
+    expect(await checkProfilePin('free', undefined)).toBe('ok');
+  });
+
+  it('follows the server when the PIN was changed since it was remembered', async () => {
+    await rememberPin(KID, '1111');
+    listWith(); // the server now says 7305
+    expect(await checkProfilePin(KID, '7305')).toBe('ok');
+    expect(await checkProfilePin(KID, '1111')).toBe('wrong');
+  }, 30_000);
+
+  it('falls back to a remembered PIN when the list came from a server that sends no verifiers', async () => {
+    localStorage.setItem(
+      CACHE_KEY,
+      JSON.stringify({ hasPin: true, profiles: [{ id: KID, name: 'Kid', hasPin: true }] }),
+    );
+    expect(await checkProfilePin(KID, '7305')).toBe('offline-unknown');
+    await rememberPin(KID, '7305');
+    expect(await checkProfilePin(KID, '7305')).toBe('ok');
   });
 });
 

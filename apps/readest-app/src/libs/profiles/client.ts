@@ -1,9 +1,16 @@
 import { getAPIBaseUrl } from '@/services/environment';
 import { fetchWithAuth } from '@/utils/fetch';
 import { getActiveProfileId, setActiveProfileId } from './active';
-import { setCachedAvatar, setCachedProfiles, type ProfileInfo, type ProfilesState } from './cache';
+import {
+  getCachedProfiles,
+  setCachedAvatar,
+  setCachedProfiles,
+  type ProfileInfo,
+  type ProfilesState,
+} from './cache';
 import { forgetPinsOfProfilesWithoutPin, matchesRememberedPin, rememberPin } from './pinCache';
 import { isOfflineError } from './offline';
+import { verifyScryptPin } from './scrypt';
 import { PIN_HEADER } from './shared';
 
 export type { ProfileInfo, ProfilesState };
@@ -113,6 +120,30 @@ export type PinCheck = 'ok' | 'wrong' | 'offline-unknown';
  * is how a profile unlocks switching. Without a connection, a PIN that was accepted before on this
  * device is accepted again (see pinCache); one never checked here cannot be told.
  */
+/**
+ * Does `pin` open `profileId` (null = main) according to the verifiers in the last list of
+ * profiles? A profile takes its own PIN or the master PIN; the main profile only the master PIN.
+ * `null` when the list has none (no list yet, or a server that does not send them).
+ */
+const matchesListedVerifiers = async (
+  profileId: string | null,
+  pin?: string,
+): Promise<boolean | null> => {
+  const state = getCachedProfiles();
+  if (!state) return null;
+  const master = state.mainPinVerifier;
+  const own = profileId ? state.profiles.find((p) => p.id === profileId)?.pinVerifier : master;
+  if (own === undefined || master === undefined) return null;
+  // Where no PIN is set, none is asked for (as on the server).
+  if ((profileId ? own : master) === null) return true;
+  if (!pin) return false;
+  const accepted = (profileId ? [own, master] : [master]).filter((v): v is string => !!v);
+  for (const verifier of accepted) {
+    if (await verifyScryptPin(pin, verifier)) return true;
+  }
+  return false;
+};
+
 const PIN_CHECK_TIMEOUT_MS = 6000;
 
 const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
@@ -152,6 +183,11 @@ export const checkProfilePin = async (
   } catch (error) {
     // The server answered: it said no (wrong PIN, too many tries). Believe it.
     if (!isOfflineError(error)) return 'wrong';
+    // The list of profiles carries what the server stores to check each PIN; with it any PIN can
+    // be checked here, including one never typed on this device. It is also the newer word than a
+    // PIN remembered earlier (the PIN may have been changed since).
+    const byList = await matchesListedVerifiers(profileId, pin);
+    if (byList !== null) return byList ? 'ok' : 'wrong';
     const remembered = pin ? await matchesRememberedPin(profileId, pin) : null;
     if (remembered === null) return 'offline-unknown';
     return remembered ? 'ok' : 'wrong';
