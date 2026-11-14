@@ -528,3 +528,60 @@ describe('AudiobookPlayer with a book made of several files', () => {
     mocks.appService.exists.mockResolvedValue(true);
   });
 });
+
+describe('AudiobookPlayer on Android', () => {
+  const androidBook = { ...book, hash: 'and', format: 'M4B', title: 'Big Book' } as Book;
+
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    mocks.appService = Object.assign(mocks.appService, {
+      appPlatform: 'tauri',
+      isAndroidApp: true,
+      resolveFilePath: vi.fn(async (p: string) => `/data/${p}`),
+      getImageURL: vi.fn(async (p: string) => `asset://localhost${p}`),
+    });
+    tauriInvoke.mockReset();
+    tauriInvoke.mockResolvedValue('http://127.0.0.1:4000/tok/audio');
+    const big = new File(['x'], 'big.m4b');
+    Object.defineProperty(big, 'size', { value: 400 * 1024 * 1024 });
+    mocks.appService.openFile.mockResolvedValue(big);
+    mocks.parse.mockImplementation(() => new Promise(() => {}));
+  });
+  afterEach(() => {
+    Object.assign(mocks.appService, { appPlatform: 'web', isAndroidApp: false });
+  });
+
+  it('plays from the local streaming address, not through the asset route', async () => {
+    render(<AudiobookPlayer book={androidBook} onBack={() => {}} />);
+    await waitFor(() => expect(audio().getAttribute('src')).toBeTruthy());
+    expect(audio().getAttribute('src')).toBe('http://127.0.0.1:4000/tok/audio');
+    expect(tauriInvoke).toHaveBeenCalledWith(
+      'serve_media_file',
+      expect.objectContaining({ filePath: expect.stringContaining('/data/') }),
+    );
+  });
+
+  it('moves on to the next way of reaching the file when one has not started in 15 seconds', async () => {
+    render(<AudiobookPlayer book={androidBook} onBack={() => {}} />);
+    await waitFor(() => expect(audio().getAttribute('src')).toBeTruthy());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(14_000);
+    });
+    expect(audio().getAttribute('src')).toBe('http://127.0.0.1:4000/tok/audio');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    await waitFor(() => expect(audio().getAttribute('src')).toMatch(/^asset:\/\/localhost\//));
+  });
+
+  it('stays on a source that has started', async () => {
+    render(<AudiobookPlayer book={androidBook} onBack={() => {}} />);
+    await waitFor(() => expect(audio().getAttribute('src')).toBeTruthy());
+    Object.defineProperty(audio(), 'readyState', { configurable: true, get: () => 1 });
+    fireEvent.loadedMetadata(audio());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(audio().getAttribute('src')).toBe('http://127.0.0.1:4000/tok/audio');
+  });
+});

@@ -48,6 +48,7 @@ import {
   SleepOption,
 } from '@/libs/audiobook/player';
 
+const SOURCE_START_TIMEOUT_MS = 15_000;
 const CONFIG_SAVE_MS = 10_000;
 const LIBRARY_SAVE_MS = 30_000;
 const FINISHED_WITHIN_SECONDS = 5;
@@ -230,7 +231,12 @@ export const useAudiobook = (book: Book) => {
     }
     const tauri = appService.appPlatform === 'tauri';
     planRef.current = {
-      order: playbackPlan({ tauri, ios: !!appService.isIOSApp, size: part.size }),
+      order: playbackPlan({
+        tauri,
+        ios: !!appService.isIOSApp,
+        android: !!appService.isAndroidApp,
+        size: part.size,
+      }),
       index: 0,
       path,
       base: 'Books',
@@ -342,7 +348,12 @@ export const useAudiobook = (book: Book) => {
         const tauri = appService.appPlatform === 'tauri';
         const absPath = tauri ? await appService.resolveFilePath(path, base) : '';
         planRef.current = {
-          order: playbackPlan({ tauri, ios: !!appService.isIOSApp, size }),
+          order: playbackPlan({
+            tauri,
+            ios: !!appService.isIOSApp,
+            android: !!appService.isAndroidApp,
+            size,
+          }),
           index: 0,
           path,
           base,
@@ -617,6 +628,40 @@ export const useAudiobook = (book: Book) => {
     };
   }, [persist]);
 
+  /**
+   * Switch to the next way of reaching the file (see `playbackPlan`), keeping the place: where
+   * playback had got to, or the saved position if it never started. False when there is none.
+   */
+  const tryNextSource = () => {
+    const plan = planRef.current;
+    if (!plan || plan.index + 1 >= plan.order.length) return false;
+    plan.index += 1;
+    void (async () => {
+      try {
+        const url = await sourceUrl(plan.order[plan.index]!);
+        if ((audioRef.current?.readyState ?? 0) > 0) {
+          resume.current = playlist.current.multi ? latest.current.offset : latest.current.position;
+        }
+        setSrc(url);
+      } catch {
+        setError(describeMediaError(audioRef.current?.error?.code));
+      }
+    })();
+    return true;
+  };
+
+  // A source that neither plays nor reports an error would leave the book "loading" for ever
+  // (a stalled request); give it 15 seconds, then try the next way of reaching the file.
+  useEffect(() => {
+    if (!src) return;
+    const timer = setTimeout(() => {
+      const audio = audioRef.current;
+      if (audio && audio.readyState === 0 && !audio.error) tryNextSource();
+    }, SOURCE_START_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [src]);
+
   /** Props for the <audio> element. */
   const audioProps = {
     ref: audioRef,
@@ -674,25 +719,9 @@ export const useAudiobook = (book: Book) => {
       void persist(true);
     },
     onError: () => {
-      const audio = audioRef.current;
-      const plan = planRef.current;
       // This way of reaching the file did not play: try the next one, from the same spot.
-      if (plan && plan.index + 1 < plan.order.length) {
-        plan.index += 1;
-        void (async () => {
-          try {
-            const url = await sourceUrl(plan.order[plan.index]!);
-            resume.current = playlist.current.multi
-              ? latest.current.offset
-              : latest.current.position;
-            setSrc(url);
-          } catch {
-            setError(describeMediaError(audio?.error?.code));
-          }
-        })();
-        return;
-      }
-      setError(describeMediaError(audio?.error?.code));
+      if (tryNextSource()) return;
+      setError(describeMediaError(audioRef.current?.error?.code));
     },
   };
 

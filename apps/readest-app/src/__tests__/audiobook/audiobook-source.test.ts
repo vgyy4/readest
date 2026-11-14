@@ -46,6 +46,12 @@ describe('playbackPlan', () => {
     ]);
   });
 
+  it('streams from a local address on Android first too: the asset route hands the file to the media stack through the app, which can take minutes to start a big book', () => {
+    expect(
+      playbackPlan({ tauri: true, ios: false, android: true, size: 500 * 1024 * 1024 }),
+    ).toEqual(['loopback', 'asset']);
+  });
+
   it('uses the asset protocol first elsewhere in the app', () => {
     expect(playbackPlan({ tauri: true, ios: false, size: 10 })).toEqual([
       'asset',

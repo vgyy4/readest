@@ -68,14 +68,19 @@ export const MAX_BLOB_BYTES = 120 * 1024 * 1024;
 export const playbackPlan = ({
   tauri,
   ios,
+  android = false,
   size,
 }: {
   tauri: boolean;
   ios: boolean;
+  android?: boolean;
   size: number;
 }): PlaybackSource[] => {
   if (!tauri) return ['blob'];
-  const order: PlaybackSource[] = ios ? ['loopback', 'asset'] : ['asset', 'loopback'];
+  // On the phones the asset route is the slow one: the file passes through the app's request
+  // handler and the media stack may read it from the start to reach a saved position, which
+  // took minutes for a big book. The local address streams straight from the native server.
+  const order: PlaybackSource[] = ios || android ? ['loopback', 'asset'] : ['asset', 'loopback'];
   if (size <= MAX_BLOB_BYTES) order.push('blob');
   return order;
 };
