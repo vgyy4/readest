@@ -126,6 +126,31 @@ export function selectNewImportableFiles(
 }
 
 /**
+ * Tell files that are done arriving from files that may still be being copied in. A copy that is
+ * caught half-way imports as a different (cut-off) book: no cover, no chapters, and the whole
+ * file again a moment later. A file is ready once two scans in a row saw the same size.
+ * `seen` holds the sizes from the last scan; it is updated in place, and a ready file is dropped
+ * from it so a later change of the same name starts over.
+ */
+export function settleScannedFiles(
+  entries: ScannedFileEntry[],
+  seen: Map<string, number>,
+): { ready: ScannedFileEntry[]; growing: ScannedFileEntry[] } {
+  const ready: ScannedFileEntry[] = [];
+  const growing: ScannedFileEntry[] = [];
+  for (const entry of entries) {
+    if (seen.get(entry.fullPath) === entry.size) {
+      seen.delete(entry.fullPath);
+      ready.push(entry);
+    } else {
+      seen.set(entry.fullPath, entry.size);
+      growing.push(entry);
+    }
+  }
+  return { ready, growing };
+}
+
+/**
  * Turn the newly-found entries of one watched folder into importer inputs.
  *
  * `flatten` mirrors the Import-from-Folder dialog's "Folder Structure" choice

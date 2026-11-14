@@ -18,6 +18,7 @@ import {
   playbackPlan,
 } from '@/libs/audiobook/source';
 import { blurredCoverUrl, CoverColor, sampleCoverColor } from '@/libs/audiobook/palette';
+import { shrinkCover } from '@/libs/audiobook/cover';
 import {
   AudioChapter,
   chapterIndexAt,
@@ -181,26 +182,51 @@ export const useAudiobook = (book: Book) => {
           path = book.filePath;
           base = 'None';
         }
-        // A book opened before skips its file: no tags to read, no cover to decode.
-        let info: { duration: number; chapters: AudioChapter[]; cover?: Blob; size: number };
+        // A book opened before skips its file: no tags to read, no cover to decode. One opened for
+        // the first time starts playing at once; its tags are read alongside, never in the way.
+        let size: number;
+        let duration = 0;
+        let parsing: Promise<void> | null = null;
         if (cached && cached.duration > 0 && cached.size > 0) {
-          info = { duration: cached.duration, chapters: cached.chapters, size: cached.size };
+          ({ size, duration } = cached);
         } else {
           const file = await appService.openFile(path, base);
-          const { parseAudiobook } = await import('@/libs/audiobook/metadata');
-          const parsed = await parseAudiobook(file);
-          (file as { close?: () => Promise<void> }).close?.();
-          info = { ...parsed, size: file.size };
-          writeAudioInfo(book.hash, {
-            duration: info.duration,
-            size: info.size,
-            chapters: info.chapters,
-          });
+          size = file.size;
+          const close = () => (file as { close?: () => Promise<void> }).close?.();
+          parsing = (async () => {
+            try {
+              const { parseAudiobook } = await import('@/libs/audiobook/metadata');
+              const parsed = await parseAudiobook(file);
+              if (parsed.chapters.length > 0 || parsed.duration > 0) {
+                writeAudioInfo(book.hash, {
+                  duration: parsed.duration,
+                  size,
+                  chapters: parsed.chapters,
+                });
+              }
+              if (cancelled) return;
+              if (!latest.current.duration) {
+                latest.current.duration = parsed.duration;
+                setDuration(parsed.duration);
+              }
+              setChapters(fitChapters(parsed.chapters, latest.current.duration || parsed.duration));
+              if (parsed.cover) {
+                const small = await shrinkCover(parsed.cover);
+                if (cancelled) return;
+                coverObjectUrl = URL.createObjectURL(small);
+                setCoverUrl(coverObjectUrl);
+              }
+            } catch {
+              // Unreadable tags only cost the chapters and cover: the audio still plays.
+            } finally {
+              await close()?.catch(() => {});
+            }
+          })();
         }
         const tauri = appService.appPlatform === 'tauri';
         const absPath = tauri ? await appService.resolveFilePath(path, base) : '';
         planRef.current = {
-          order: playbackPlan({ tauri, ios: !!appService.isIOSApp, size: info.size }),
+          order: playbackPlan({ tauri, ios: !!appService.isIOSApp, size }),
           index: 0,
           path,
           base,
@@ -210,17 +236,15 @@ export const useAudiobook = (book: Book) => {
         const url = await sourceUrl(planRef.current.order[0]!);
         const config = await appService.loadBookConfig(book, settings);
         if (cancelled) return;
-        // The embedded cover is same-origin, so its colors can be read.
-        if (info.cover) {
-          coverObjectUrl = URL.createObjectURL(info.cover);
-          setCoverUrl(coverObjectUrl);
-        }
         resume.current = savedPosition(config?.location, book.progress);
         setBookmarks((config?.booknotes ?? []).filter(isAudioBookmark));
-        setChapters(info.chapters);
-        setDuration(info.duration);
-        latest.current.duration = info.duration;
+        if (cached) setChapters(cached.chapters);
+        if (duration > 0) {
+          setDuration(duration);
+          latest.current.duration = duration;
+        }
         setSrc(url);
+        await parsing;
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       }

@@ -50,6 +50,18 @@ describe('ImportMenuPopup', () => {
     expect(screen.queryByRole('menuitem', { name: 'From Web URL' })).toBeNull();
   });
 
+  it('offers the watched folders only when some are being watched, and opens them', () => {
+    renderPopup();
+    expect(screen.queryByRole('menuitem', { name: 'Watched Folders' })).toBeNull();
+    cleanup();
+
+    const onOpenWatchedFolders = vi.fn();
+    const { onClose } = renderPopup({ onOpenWatchedFolders });
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Watched Folders' }));
+    expect(onOpenWatchedFolders).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalled();
+  });
+
   it('adds the platform-dependent options when their callbacks are available', () => {
     const onImportBooksFromDirectory = vi.fn();
     const onImportBookFromUrl = vi.fn();

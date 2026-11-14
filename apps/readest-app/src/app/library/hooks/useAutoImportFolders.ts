@@ -5,6 +5,8 @@ import { FALLBACK_SCAN_INTERVAL_MS, startFolderWatch } from '@/services/folderWa
 
 /** Quiet window collapsing the near-simultaneous mount + focus/visibility triggers. */
 const AUTO_IMPORT_DEBOUNCE_MS = 800;
+/** How long to wait before looking again at a file that was still being copied in. */
+const GROWING_RECHECK_MS = 8000;
 
 export interface UseAutoImportFoldersOptions {
   /**
@@ -14,8 +16,11 @@ export interface UseAutoImportFoldersOptions {
   enabled: boolean;
   /** Absolute paths to re-scan (settings.externalLibraryFolders). */
   folders: string[];
-  /** Scans the folders and imports any new books. Supplied by the library page. */
-  scanAndImport: (folders: string[]) => Promise<void>;
+  /**
+   * Scans the folders and imports any new books. Supplied by the library page. Resolves to
+   * `true` when some file was still being copied in, so the folders should be looked at again soon.
+   */
+  scanAndImport: (folders: string[]) => Promise<boolean | void>;
 }
 
 /**
@@ -36,6 +41,9 @@ export const useAutoImportFolders = ({
   const foldersRef = useRef(folders);
   const scanRef = useRef(scanAndImport);
   const runningRef = useRef(false);
+  // Something changed while a scan was running: look again once it is done, or it is missed.
+  const askedAgainRef = useRef(false);
+  const debouncedRunRef = useRef<() => void>(() => {});
   useEffect(() => {
     enabledRef.current = enabled;
     foldersRef.current = folders;
@@ -43,20 +51,32 @@ export const useAutoImportFolders = ({
   });
 
   const run = useCallback(async () => {
-    if (!enabledRef.current || runningRef.current) return;
+    if (!enabledRef.current) return;
+    if (runningRef.current) {
+      askedAgainRef.current = true;
+      return;
+    }
     const targets = foldersRef.current;
     if (targets.length === 0) return;
     runningRef.current = true;
+    let lookAgainSoon = false;
     try {
-      await scanRef.current(targets);
+      lookAgainSoon = (await scanRef.current(targets)) === true;
     } catch (e) {
       console.error('Auto-import folders: scan failed', e);
     } finally {
       runningRef.current = false;
     }
+    if (askedAgainRef.current) {
+      askedAgainRef.current = false;
+      debouncedRunRef.current();
+    } else if (lookAgainSoon) {
+      setTimeout(() => debouncedRunRef.current(), GROWING_RECHECK_MS);
+    }
   }, []);
 
   const debouncedRun = useMemo(() => debounce(() => void run(), AUTO_IMPORT_DEBOUNCE_MS), [run]);
+  debouncedRunRef.current = debouncedRun;
 
   // Fire on mount and whenever the gate opens or the folder set changes.
   const foldersKey = folders.join('\n');

@@ -1,4 +1,5 @@
 import type { BookDoc } from '@/libs/document';
+import { shrinkCover } from './cover';
 import { parseAudiobook } from './metadata';
 
 /**
@@ -19,6 +20,6 @@ export const makeAudioBook = async (file: File): Promise<BookDoc> => {
     toc: [],
     sections: [],
     splitTOCHref: () => [],
-    getCover: async () => info.cover ?? null,
+    getCover: async () => (info.cover ? shrinkCover(info.cover) : null),
   };
 };

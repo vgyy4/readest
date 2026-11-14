@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { MdLink, MdMenuBook, MdRssFeed } from 'react-icons/md';
+import { MdFolderOpen, MdLink, MdMenuBook, MdRssFeed } from 'react-icons/md';
 import { LuLibrary } from 'react-icons/lu';
 import { IoFileTray } from 'react-icons/io5';
 import { useEnv } from '@/context/EnvContext';
@@ -13,6 +13,8 @@ export interface ImportMenuProps {
   setIsDropdownOpen?: (open: boolean) => void;
   onImportBooksFromFiles: () => void;
   onImportBooksFromDirectory?: () => void;
+  /** Given only while some folder is watched: opens the list where a folder can be stopped. */
+  onOpenWatchedFolders?: () => void;
   onImportBookFromUrl?: () => void;
   onImportBookFromNovelUrl?: () => void;
   onOpenCatalogManager: () => void;
@@ -24,6 +26,7 @@ const ImportMenu: React.FC<ImportMenuProps> = ({
   setIsDropdownOpen,
   onImportBooksFromFiles,
   onImportBooksFromDirectory,
+  onOpenWatchedFolders,
   onImportBookFromUrl,
   onImportBookFromNovelUrl,
   onOpenCatalogManager,
@@ -39,6 +42,11 @@ const ImportMenu: React.FC<ImportMenuProps> = ({
 
   const handleImportFromDirectory = () => {
     onImportBooksFromDirectory?.();
+    setIsDropdownOpen?.(false);
+  };
+
+  const handleOpenWatchedFolders = () => {
+    onOpenWatchedFolders?.();
     setIsDropdownOpen?.(false);
   };
 
@@ -92,6 +100,13 @@ const ImportMenu: React.FC<ImportMenuProps> = ({
           label={_('Files App Folder')}
           Icon={<IoFileTray className='h-5 w-5' />}
           onClick={handleSetUpFilesFolder}
+        />
+      )}
+      {onOpenWatchedFolders && (
+        <MenuItem
+          label={_('Watched Folders')}
+          Icon={<MdFolderOpen className='h-5 w-5' />}
+          onClick={handleOpenWatchedFolders}
         />
       )}
       {onImportBookFromUrl && (

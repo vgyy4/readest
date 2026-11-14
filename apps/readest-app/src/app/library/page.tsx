@@ -14,6 +14,7 @@ import {
   collectKnownSourcePaths,
   normalizeFilePathForIndex,
   selectNewImportableFiles,
+  settleScannedFiles,
   toWatchedFolderImports,
 } from '@/services/bookService';
 import { debounce } from '@/utils/debounce';
@@ -118,6 +119,7 @@ import ImportMenuPopup from './components/ImportMenuPopup';
 import GroupHeader from './components/GroupHeader';
 import type { FailedImport } from './components/FailedImportsDialog';
 import type { ImportFromFolderResult } from './components/ImportFromFolderDialog';
+import WatchedFoldersDialog from './components/WatchedFoldersDialog';
 import ClipSignInAlert from '@/components/ClipSignInAlert';
 import useShortcuts from '@/hooks/useShortcuts';
 import { useReplicaPull } from '@/hooks/useReplicaPull';
@@ -308,6 +310,7 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
   // than a boolean because we need a default starting directory to seed
   // the path field, and we want the dialog to remain mounted long
   // enough for the platform's folder picker to overlay it.
+  const [showWatchedFolders, setShowWatchedFolders] = useState(false);
   const [importFromFolderState, setImportFromFolderState] = useState<{
     initialDirectory: string;
     initialFolderMode: 'keep' | 'flatten';
@@ -343,6 +346,8 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
   // Tracks paths that failed to import in this session so auto-import does not
   // re-attempt (and re-toast) them on every subsequent folder scan.
   const autoImportFailedPathsRef = useRef<Set<string>>(new Set());
+  // Sizes seen at the last scan, to tell a file still being copied in from a finished one.
+  const autoImportSeenSizesRef = useRef<Map<string, number>>(new Map());
   // Folders whose fs/asset scopes were already granted this session. Each
   // `allowPathsInScopes` call makes tauri-plugin-persisted-scope rewrite its
   // whole state file on the main thread, so grant once, not on every focus
@@ -1047,6 +1052,7 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
     const existingPaths = collectKnownSourcePaths(library, osPlatform);
     for (const key of autoImportFailedPathsRef.current) existingPaths.add(key);
     const newFiles: SelectedFile[] = [];
+    let stillCopying = false;
     for (const folder of folders) {
       try {
         if (!autoImportGrantedFoldersRef.current.has(folder)) {
@@ -1064,12 +1070,15 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
           existingPaths,
           osPlatform,
         });
+        // A file that is still being copied in is left for the next look.
+        const { ready, growing } = settleScannedFiles(fresh, autoImportSeenSizesRef.current);
+        if (growing.length > 0) stillCopying = true;
         // Reproduce the folder's own "Folder Structure" choice: unless it was
         // imported flat, each file carries the watched folder as `basePath` so
         // `importBooks` seats the book in the group its subfolder implies —
         // the same group the folder's initial import used (issue #5423).
         newFiles.push(
-          ...toWatchedFolderImports(folder, fresh, isFlattenedAutoImportFolder(folder)),
+          ...toWatchedFolderImports(folder, ready, isFlattenedAutoImportFolder(folder)),
         );
         for (const entry of fresh) {
           // Prevent the same file matching again via a later overlapping folder.
@@ -1089,6 +1098,7 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
         if (key) autoImportFailedPathsRef.current.add(key);
       }
     }
+    return stillCopying;
   };
 
   // Local-folder counterpart of useLibraryFileSync: re-scan the folders the
@@ -1514,6 +1524,9 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
     flatten: getFlattenFolders(settings).some((r) => normalizeRoot(r) === normalizeRoot(path)),
   }));
 
+  const openWatchedFolders =
+    watchedFolders.length > 0 ? () => setShowWatchedFolders(true) : undefined;
+
   const isFlattenedAutoImportFolder = (directory: string): boolean => {
     const target = normalizeRoot(directory);
     if (!target) return false;
@@ -1887,6 +1900,7 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
           onImportBooksFromDirectory={
             appService?.canReadExternalDir ? handleImportBooksFromDirectory : undefined
           }
+          onOpenWatchedFolders={openWatchedFolders}
           onImportBookFromUrl={isTauriAppPlatform() ? () => setShowImportFromUrl(true) : undefined}
           onImportBookFromNovelUrl={
             isTauriAppPlatform() ? () => setShowImportNovel(true) : undefined
@@ -2055,6 +2069,7 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
           onImportBooksFromDirectory={
             appService?.canReadExternalDir ? handleImportBooksFromDirectory : undefined
           }
+          onOpenWatchedFolders={openWatchedFolders}
           onImportBookFromUrl={isTauriAppPlatform() ? () => setShowImportFromUrl(true) : undefined}
           onImportBookFromNovelUrl={
             isTauriAppPlatform() ? () => setShowImportNovel(true) : undefined
@@ -2109,6 +2124,14 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
         <FailedImportsDialog
           failedImports={failedImportsModal}
           onClose={() => setFailedImportsModal(null)}
+        />
+      )}
+      {showWatchedFolders && (
+        <WatchedFoldersDialog
+          folders={watchedFolders}
+          onUnwatch={(path) => void setAutoImportFolder(path, false, false)}
+          onSetFlatten={(path, flatten) => void setAutoImportFolder(path, true, flatten)}
+          onClose={() => setShowWatchedFolders(false)}
         />
       )}
       {importFromFolderState && (

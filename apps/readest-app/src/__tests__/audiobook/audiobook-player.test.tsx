@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   updateBook: vi.fn(),
   session: { update: vi.fn(), dispose: vi.fn() },
   createSession: vi.fn(),
+  parse: vi.fn(),
 }));
 
 vi.mock('@/context/EnvContext', () => ({
@@ -37,16 +38,17 @@ vi.mock('@/store/libraryStore', () => {
   const useLibraryStore = Object.assign(() => state, { getState: () => state });
   return { useLibraryStore };
 });
+const parsedBook = {
+  title: 'Dune',
+  author: 'Frank Herbert',
+  duration: 200,
+  chapters: [
+    { title: 'Part One', start: 0, end: 100 },
+    { title: 'Part Two', start: 100, end: 200 },
+  ],
+};
 vi.mock('@/libs/audiobook/metadata', () => ({
-  parseAudiobook: async () => ({
-    title: 'Dune',
-    author: 'Frank Herbert',
-    duration: 200,
-    chapters: [
-      { title: 'Part One', start: 0, end: 100 },
-      { title: 'Part Two', start: 100, end: 200 },
-    ],
-  }),
+  parseAudiobook: (...args: unknown[]) => mocks.parse(...args),
 }));
 vi.mock('@/libs/audiobook/session', () => ({
   createAudiobookSession: (...args: unknown[]) => {
@@ -120,6 +122,8 @@ const loaded = async () => {
 
 beforeEach(() => {
   installMedia();
+  mocks.parse.mockReset();
+  mocks.parse.mockImplementation(async () => parsedBook);
   mocks.appService.exists.mockResolvedValue(true);
   mocks.appService.openFile.mockResolvedValue(new File(['x'], 'dune.m4b'));
   mocks.appService.loadBookConfig.mockResolvedValue({});
@@ -132,6 +136,30 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+});
+
+describe('AudiobookPlayer opening a book it has not read before', () => {
+  it('starts the audio without waiting for the tags and chapters to be read', async () => {
+    mocks.parse.mockImplementation(() => new Promise(() => {})); // never finishes
+    render(<AudiobookPlayer book={book} onBack={() => {}} />);
+    await waitFor(() => expect(audio().getAttribute('src')).toBeTruthy());
+    expect(screen.queryByText('Part One')).toBeNull();
+  });
+
+  it('fills in the chapters once they have been read', async () => {
+    render(<AudiobookPlayer book={book} onBack={() => {}} />);
+    await loaded();
+    expect(await screen.findByText('Part One')).toBeTruthy();
+  });
+
+  it('still plays when the tags cannot be read', async () => {
+    mocks.parse.mockRejectedValue(new Error('truncated file'));
+    render(<AudiobookPlayer book={book} onBack={() => {}} />);
+    await waitFor(() => expect(audio().getAttribute('src')).toBeTruthy());
+    await waitFor(() => expect(mocks.parse).toHaveBeenCalled());
+    expect(screen.queryByText(/truncated file/)).toBeNull();
+    expect(screen.getByLabelText('Play')).toBeTruthy();
+  });
 });
 
 describe('AudiobookPlayer', () => {
