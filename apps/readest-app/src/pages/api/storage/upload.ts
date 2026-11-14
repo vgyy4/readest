@@ -119,9 +119,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (fetchError && fetchError.code !== 'PGRST116') {
       return res.status(500).json({ error: fetchError.message });
     }
-    let objSize = fileSize;
+    // The upload is signed for the length of the file being sent now. An earlier attempt may have
+    // recorded another size (an app deleted mid-upload, a cover extracted again): signing with
+    // that one makes storage refuse this file with 403 SignatureDoesNotMatch, every time.
+    const objSize = fileSize;
     if (existingRecord) {
-      objSize = existingRecord.file_size;
+      if (existingRecord.file_size !== fileSize) {
+        const { error: resizeError } = await supabase
+          .from('files')
+          .update({ file_size: fileSize })
+          .eq('user_id', storageOwnerId)
+          .eq('file_key', fileKey);
+        if (resizeError) return res.status(500).json({ error: resizeError.message });
+      }
     } else {
       const { data: inserted, error: insertError } = await supabase
         .from('files')

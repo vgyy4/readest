@@ -4,7 +4,12 @@ import { getUserID } from '@/utils/access';
 import { fetchWithAuth } from '@/utils/fetch';
 import { needsMultipart } from '@/libs/multipart';
 import { friendlyDownloadError, isRetryableDownloadError } from '@/libs/downloadError';
-import { friendlyUploadError, MultipartUnsupported, uploadInParts } from '@/libs/multipartUpload';
+import {
+  friendlyUploadError,
+  MultipartUnsupported,
+  retryAfterStaleRecord,
+  uploadInParts,
+} from '@/libs/multipartUpload';
 import {
   tauriUpload,
   tauriDownload,
@@ -95,27 +100,35 @@ export const uploadFile = async (
       }
     }
 
-    const response = await fetchWithAuth(API_ENDPOINTS.upload, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        fileName: file.name,
-        fileSize: file.size,
-        bookHash,
-        temp,
-        media,
-      }),
-    });
+    const sendInOneRequest = async () => {
+      const response = await fetchWithAuth(API_ENDPOINTS.upload, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fileName: file.name,
+          fileSize: file.size,
+          bookHash,
+          temp,
+          media,
+        }),
+      });
 
-    const { uploadUrl, downloadUrl }: { uploadUrl: string; downloadUrl?: string } =
-      await response.json();
-    if (isWebAppPlatform()) {
-      await webUpload(file, uploadUrl, onProgress);
-    } else {
-      await tauriUpload(uploadUrl, fileFullPath, 'PUT', onProgress);
-    }
+      const { uploadUrl, downloadUrl }: { uploadUrl: string; downloadUrl?: string } =
+        await response.json();
+      if (isWebAppPlatform()) {
+        await webUpload(file, uploadUrl, onProgress);
+      } else {
+        await tauriUpload(uploadUrl, fileFullPath, 'PUT', onProgress);
+      }
+      return downloadUrl;
+    };
+    // A temporary or media file has no record to go stale; a book's files do.
+    const downloadUrl =
+      temp || media
+        ? await sendInOneRequest()
+        : await retryAfterStaleRecord(sendInOneRequest, () => deleteFile(file.name));
     return temp || media ? downloadUrl : undefined;
   } catch (error) {
     console.error('File upload failed:', error);

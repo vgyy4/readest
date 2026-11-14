@@ -9,6 +9,7 @@ import {
 import {
   friendlyUploadError,
   MultipartUnsupported,
+  retryAfterStaleRecord,
   uploadInParts,
   type PartInfo,
 } from '@/libs/multipartUpload';
@@ -228,5 +229,39 @@ describe('friendlyUploadError', () => {
       'Insufficient storage quota',
     );
     expect(friendlyUploadError('plain').message).toBe('plain');
+  });
+});
+
+describe('retryAfterStaleRecord', () => {
+  it('clears the server record and sends again when storage rejects the signature', async () => {
+    const discard = vi.fn(async () => {});
+    const attempt = vi
+      .fn<() => Promise<string>>()
+      .mockRejectedValueOnce(
+        new Error('request failed with status code 403: SignatureDoesNotMatch'),
+      )
+      .mockResolvedValue('done');
+    await expect(retryAfterStaleRecord(attempt, discard)).resolves.toBe('done');
+    expect(discard).toHaveBeenCalledTimes(1);
+    expect(attempt).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not touch the server record for other failures', async () => {
+    const discard = vi.fn(async () => {});
+    const attempt = vi.fn(async () => {
+      throw new Error('Upload failed with status 524');
+    });
+    await expect(retryAfterStaleRecord(attempt, discard)).rejects.toThrow(/524/);
+    expect(discard).not.toHaveBeenCalled();
+    expect(attempt).toHaveBeenCalledTimes(1);
+  });
+
+  it('tries only once more, then reports the second failure', async () => {
+    const discard = vi.fn(async () => {});
+    const attempt = vi.fn(async () => {
+      throw new Error('Upload failed with status 403: SignatureDoesNotMatch');
+    });
+    await expect(retryAfterStaleRecord(attempt, discard)).rejects.toThrow(/403/);
+    expect(attempt).toHaveBeenCalledTimes(2);
   });
 });

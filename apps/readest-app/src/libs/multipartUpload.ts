@@ -131,3 +131,22 @@ export const uploadInParts = async (
     throw friendlyUploadError(error);
   }
 };
+
+/**
+ * Run one single-request upload; if storage refuses its signature (403), the server signed it for
+ * a size recorded by an earlier, abandoned attempt (an older server does that). Clear that record
+ * and send once more, so the retry is signed for this file.
+ */
+export const retryAfterStaleRecord = async <T>(
+  attempt: () => Promise<T>,
+  discard: () => Promise<void>,
+): Promise<T> => {
+  try {
+    return await attempt();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/SignatureDoesNotMatch|\b403\b/.test(message)) throw error;
+    await discard().catch(() => {});
+    return attempt();
+  }
+};
