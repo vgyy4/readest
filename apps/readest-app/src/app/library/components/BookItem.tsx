@@ -16,6 +16,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useSettingsStore } from '@/store/settingsStore';
+import { useTransferStore } from '@/store/transferStore';
 import { useResponsiveSize } from '@/hooks/useResponsiveSize';
 import { LibraryCoverFitType, LibraryViewModeType } from '@/types/settings';
 import { eventDispatcher } from '@/utils/event';
@@ -45,7 +46,7 @@ const BookItem: React.FC<BookItemProps> = ({
   coverFit,
   isSelectMode,
   bookSelected,
-  transferProgress,
+  transferProgress: directProgress,
   handleBookUpload,
   handleBookDownload,
   showBookDetailsModal,
@@ -57,6 +58,16 @@ const BookItem: React.FC<BookItemProps> = ({
   const { appService } = useEnv();
   const { settings } = useSettingsStore();
   const iconSize15 = useResponsiveSize(15);
+  // Uploads and downloads run by the transfer queue report here; direct taps report via the prop.
+  const queuedProgress = useTransferStore((state) => {
+    for (const t of Object.values(state.transfers)) {
+      if (t.kind === 'book' && t.bookHash === book.hash && t.status === 'in_progress') {
+        return Math.round(t.progress);
+      }
+    }
+    return null;
+  });
+  const transferProgress = queuedProgress ?? directProgress;
   // Not on this device, not on the server, and not a file opened in place from elsewhere.
   const fileIsGone = !book.uploadedAt && !book.downloadedAt && !book.filePath;
 
@@ -193,17 +204,22 @@ const BookItem: React.FC<BookItemProps> = ({
             )}
             {transferProgress !== null ? (
               transferProgress === 100 ? null : (
-                <div
-                  className='radial-progress'
-                  style={
-                    {
-                      '--value': transferProgress,
-                      '--size': `${iconSize15}px`,
-                      '--thickness': '2px',
-                    } as React.CSSProperties
-                  }
-                  role='progressbar'
-                ></div>
+                <div className='flex items-center gap-1'>
+                  <span className='text-[10px] tabular-nums leading-none'>
+                    {Math.round(transferProgress)}%
+                  </span>
+                  <div
+                    className='radial-progress'
+                    style={
+                      {
+                        '--value': transferProgress,
+                        '--size': `${iconSize15}px`,
+                        '--thickness': '2px',
+                      } as React.CSSProperties
+                    }
+                    role='progressbar'
+                  ></div>
+                </div>
               )
             ) : (
               // A feed book has no file to move either way, so it never gets a
