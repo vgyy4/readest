@@ -16,6 +16,12 @@ const HASH = /^[0-9a-f]{32}$/i;
  *
  * `{ bookHashes }` -> `{ present, missing }`. A profile asks about the account's storage, where
  * its books live. Needs no more than a signed-in session: it only says whether files exist.
+ *
+ * With `repair: true` the server also takes back the false claim: the "uploaded" mark of the
+ * missing books is cleared for the account and every one of its profiles, so no device goes on
+ * offering a download that cannot work, and a device that still has the file uploads it again. A
+ * device without the file (which cannot repair anything itself) sets this off by trying to
+ * download and being told the server has nothing.
  */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   await runMiddleware(req, res, corsAllMethods);
@@ -55,9 +61,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       })),
     );
     const present = new Set(checks.filter((c) => c.exists).map((c) => c.hash.toLowerCase()));
+    const missing = hashes.filter((h) => !present.has(h.toLowerCase()));
+    if (req.body?.repair === true && missing.length > 0) {
+      const accountId = isProfile && ownerId ? ownerId : user.id;
+      const admin = createSupabaseAdminClient();
+      const { data: profiles } = await admin
+        .from('profiles')
+        .select('profile_user_id')
+        .eq('owner_id', accountId);
+      const userIds = [accountId, ...(profiles ?? []).map((p) => p.profile_user_id as string)];
+      const { error: clearError } = await admin
+        .from('books')
+        .update({ uploaded_at: null, updated_at: new Date().toISOString() })
+        .in('user_id', userIds)
+        .in('book_hash', missing)
+        .not('uploaded_at', 'is', null);
+      if (clearError) throw clearError;
+    }
     return res.status(200).json({
       present: hashes.filter((h) => present.has(h.toLowerCase())),
-      missing: hashes.filter((h) => !present.has(h.toLowerCase())),
+      missing,
     });
   } catch (error) {
     console.error(error);

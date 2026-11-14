@@ -7,6 +7,8 @@ import { TranslationFunc } from '@/hooks/useTranslation';
 import { createProgressThrottle, ProgressHandler, ProgressPayload } from '@/utils/transfer';
 import { eventDispatcher } from '@/utils/event';
 import { getNetworkKind, type NetworkKind, shouldHoldUpload } from '@/utils/uploadNetwork';
+import { isNotOnServerError } from '@/libs/downloadError';
+import { askServerWhichAreMissing } from '@/services/serverFileCheck';
 import { getTransferMessages, withFailureReason } from './transferMessages';
 
 const TRANSFER_QUEUE_KEY = 'readest_transfer_queue';
@@ -501,6 +503,29 @@ class TransferManager {
     }
   }
 
+  /**
+   * A book download failed because the server has nothing to serve. Ask the server to confirm,
+   * and have it take back its false "uploaded" mark (for the account and every profile), then drop
+   * the mark here too. True only when the server confirmed the file is missing; if it cannot be
+   * asked, or says it has the file, nothing is changed and the failure is handled like any other.
+   */
+  private async confirmFileMissing(transfer: TransferItem, error: unknown): Promise<boolean> {
+    if (transfer.kind !== 'book' || transfer.type !== 'download' || !isNotOnServerError(error)) {
+      return false;
+    }
+    try {
+      const missing = await askServerWhichAreMissing([transfer.bookHash], { repair: true });
+      if (!missing.includes(transfer.bookHash)) return false;
+      const book = this.getLibrary?.().find((b) => b.hash === transfer.bookHash);
+      if (book && this.updateBook) {
+        await this.updateBook({ ...book, uploadedAt: null, updatedAt: Date.now() });
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private async executeTransfer(transfer: TransferItem): Promise<void> {
     if (!this.appService || !this.getLibrary || !this.updateBook) {
       console.error('TransferManager not properly initialized');
@@ -566,9 +591,12 @@ class TransferManager {
       // Quota exhaustion is permanent for this account state; retrying
       // burns three backoff rounds per book for the same 403.
       const isQuotaError = errorMessage.includes('Insufficient storage quota');
+      // A file the server confirms it never had will not appear by asking again.
+      const fileIsGone = !isQuotaError && (await this.confirmFileMissing(transfer, error));
 
       if (
         !isQuotaError &&
+        !fileIsGone &&
         currentTransfer &&
         currentTransfer.retryCount < currentTransfer.maxRetries
       ) {

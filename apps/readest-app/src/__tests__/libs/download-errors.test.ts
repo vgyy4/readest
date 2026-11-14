@@ -18,7 +18,7 @@ vi.mock('@/utils/transfer', () => ({
 }));
 
 import { downloadFile } from '@/libs/storage';
-import { friendlyDownloadError } from '@/libs/downloadError';
+import { friendlyDownloadError, isNotOnServerError, NotOnServerError } from '@/libs/downloadError';
 import { fetchWithAuth } from '@/utils/fetch';
 import { tauriDownload } from '@/utils/transfer';
 
@@ -39,9 +39,9 @@ describe('friendlyDownloadError', () => {
   it('says a missing file is not on the server', () => {
     expect(
       friendlyDownloadError(new Error('request failed with status code 404: NoSuchKey')).message,
-    ).toMatch(/not on the server/i);
+    ).toMatch(/does not have this book/i);
     expect(friendlyDownloadError(new Error('No download URL available')).message).toMatch(
-      /does not have this file/i,
+      /does not have this book/i,
     );
   });
 
@@ -68,6 +68,33 @@ describe('friendlyDownloadError', () => {
     expect(
       friendlyDownloadError(new Error('a part of the file came back 5 bytes long')).message,
     ).toBe('a part of the file came back 5 bytes long');
+  });
+});
+
+describe('isNotOnServerError', () => {
+  it('recognises the ways a missing file shows up', () => {
+    expect(friendlyDownloadError(new Error('File not found'))).toBeInstanceOf(NotOnServerError);
+    expect(friendlyDownloadError(new Error('No download URL available'))).toBeInstanceOf(
+      NotOnServerError,
+    );
+    expect(
+      friendlyDownloadError(new Error('request failed with status code 404: NoSuchKey')),
+    ).toBeInstanceOf(NotOnServerError);
+    expect(isNotOnServerError(friendlyDownloadError(new Error('File not found')))).toBe(true);
+  });
+
+  it('does not take a refusal or a timeout for a missing file', () => {
+    expect(
+      isNotOnServerError(
+        friendlyDownloadError(new Error('request failed with status code 403: x')),
+      ),
+    ).toBe(false);
+    expect(
+      isNotOnServerError(
+        friendlyDownloadError(new Error('request failed with status code 524: x')),
+      ),
+    ).toBe(false);
+    expect(isNotOnServerError(new Error('connection reset'))).toBe(false);
   });
 });
 

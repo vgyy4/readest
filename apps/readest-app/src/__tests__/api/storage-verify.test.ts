@@ -20,16 +20,50 @@ vi.mock('@/utils/access', () => ({
 vi.mock('@/utils/object', () => ({
   objectExists: (...a: unknown[]) => objectExistsMock(...a),
 }));
+const clearedMarks: { values: Record<string, unknown>; userIds: unknown; hashes: unknown }[] = [];
+let profileIds: string[] = [];
 vi.mock('@/utils/supabase', () => {
-  const builder: Record<string, unknown> = {};
-  builder['select'] = () => builder;
-  builder['eq'] = (col: string, value: unknown) => {
+  const files: Record<string, unknown> = {};
+  files['select'] = () => files;
+  files['eq'] = (col: string, value: unknown) => {
     if (col === 'user_id') lookedUpUsers.push(value);
-    return builder;
+    return files;
   };
-  builder['in'] = () => builder;
-  builder['is'] = async () => ({ data: fileRows, error: null });
-  return { createSupabaseAdminClient: () => ({ from: () => builder }) };
+  files['in'] = () => files;
+  files['is'] = async () => ({ data: fileRows, error: null });
+  const profiles: Record<string, unknown> = {};
+  profiles['select'] = () => profiles;
+  profiles['eq'] = async () => ({
+    data: profileIds.map((id) => ({ profile_user_id: id })),
+    error: null,
+  });
+  const books = () => {
+    const call: { values: Record<string, unknown>; userIds?: unknown; hashes?: unknown } = {
+      values: {},
+    };
+    const chain: Record<string, unknown> = {};
+    chain['update'] = (values: Record<string, unknown>) => {
+      call.values = values;
+      return chain;
+    };
+    let ins = 0;
+    chain['in'] = (_col: string, list: unknown) => {
+      if (ins++ === 0) call.userIds = list;
+      else call.hashes = list;
+      return chain;
+    };
+    chain['not'] = async () => {
+      clearedMarks.push(call as (typeof clearedMarks)[number]);
+      return { error: null };
+    };
+    return chain;
+  };
+  return {
+    createSupabaseAdminClient: () => ({
+      from: (table: string) =>
+        table === 'files' ? files : table === 'profiles' ? profiles : books(),
+    }),
+  };
 });
 
 import handler from '@/pages/api/storage/verify';
@@ -59,6 +93,8 @@ const call = async (body: unknown, method = 'POST') => {
 beforeEach(() => {
   fileRows = [];
   lookedUpUsers.length = 0;
+  clearedMarks.length = 0;
+  profileIds = [];
   objectExistsMock.mockReset().mockResolvedValue(true);
   validateUserAndTokenMock.mockReset().mockResolvedValue({
     user: { id: 'owner' },
@@ -116,5 +152,42 @@ describe('POST /api/storage/verify', () => {
     const { status, json } = await call({ bookHashes: [] });
     expect(status).toBe(200);
     expect(json).toEqual({ present: [], missing: [] });
+  });
+});
+
+describe('POST /api/storage/verify with repair', () => {
+  it('clears the false "uploaded" mark of the missing books for the account and every profile', async () => {
+    profileIds = ['kid-1', 'kid-2'];
+    fileRows = [{ book_hash: a, file_key: `owner/Readest/Books/${a}/${a}.epub` }];
+    const { json } = await call({ bookHashes: [a, b], repair: true });
+    expect(json['missing']).toEqual([b]);
+    expect(clearedMarks).toHaveLength(1);
+    expect(clearedMarks[0]!.values['uploaded_at']).toBeNull();
+    expect(typeof clearedMarks[0]!.values['updated_at']).toBe('string');
+    expect(clearedMarks[0]!.userIds).toEqual(['owner', 'kid-1', 'kid-2']);
+    expect(clearedMarks[0]!.hashes).toEqual([b]);
+  });
+
+  it('leaves the marks of books the server does have', async () => {
+    fileRows = [{ book_hash: a, file_key: `owner/Readest/Books/${a}/${a}.epub` }];
+    await call({ bookHashes: [a], repair: true });
+    expect(clearedMarks).toHaveLength(0);
+  });
+
+  it('changes nothing unless asked to', async () => {
+    await call({ bookHashes: [a, b] });
+    expect(clearedMarks).toHaveLength(0);
+  });
+
+  it('works from a profile, for the account it belongs to', async () => {
+    validateUserAndTokenMock.mockResolvedValue({
+      user: { id: 'kid-1' },
+      token: 't',
+      ownerId: 'owner',
+      isProfile: true,
+    });
+    profileIds = ['kid-1'];
+    await call({ bookHashes: [c], repair: true });
+    expect(clearedMarks[0]!.userIds).toEqual(['owner', 'kid-1']);
   });
 });

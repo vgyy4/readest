@@ -1,15 +1,28 @@
+/** The server has no file for this book (as opposed to refusing, timing out or dropping). */
+export class NotOnServerError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NotOnServerError';
+  }
+}
+
+export const isNotOnServerError = (error: unknown): boolean =>
+  error instanceof NotOnServerError ||
+  (error instanceof Error &&
+    /does not have this (book|file)|not on the server/i.test(error.message));
+
 /** What went wrong with a download, in words the user can act on. */
 export const friendlyDownloadError = (error: unknown): Error => {
   const message = error instanceof Error ? error.message : String(error);
   // The server's own words when it has no record of the file.
   if (/^file not found$/i.test(message.trim())) {
-    return new Error(
+    return new NotOnServerError(
       'The server does not have this book. Open Readest on a device that has it, on Wi-Fi, and it will be uploaded again.',
     );
   }
   if (/No download URL available/i.test(message)) {
-    return new Error(
-      'The server does not have this file. It may not have finished uploading from the other device.',
+    return new NotOnServerError(
+      'The server does not have this book. Open Readest on a device that has it, on Wi-Fi, and it will be uploaded again.',
     );
   }
   if (/\b(401|403)\b/.test(message)) {
@@ -18,7 +31,9 @@ export const friendlyDownloadError = (error: unknown): Error => {
     );
   }
   if (/\b404\b/.test(message)) {
-    return new Error('The file is not on the server (404). It may not have finished uploading.');
+    return new NotOnServerError(
+      'The server does not have this book (404). Open Readest on a device that has it, on Wi-Fi, and it will be uploaded again.',
+    );
   }
   if (/\b(408|502|503|504|522|524)\b/.test(message)) {
     return new Error('The server did not answer in time. Check the connection and try again.');

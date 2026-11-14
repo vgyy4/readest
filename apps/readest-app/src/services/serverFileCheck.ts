@@ -20,12 +20,18 @@ export const inBatches = <T>(list: T[], size: number): T[][] => {
   return batches;
 };
 
-/** Ask the server which of these book hashes it has no file for. */
-export const askServerWhichAreMissing = async (hashes: string[]): Promise<string[]> => {
+/**
+ * Ask the server which of these book hashes it has no file for. With `repair`, the server also
+ * clears its false "uploaded" mark for the missing ones (for the account and all its profiles).
+ */
+export const askServerWhichAreMissing = async (
+  hashes: string[],
+  options: { repair?: boolean } = {},
+): Promise<string[]> => {
   const response = await fetchWithAuth(`${getAPIBaseUrl()}/storage/verify`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ bookHashes: hashes }),
+    body: JSON.stringify({ bookHashes: hashes, ...(options.repair ? { repair: true } : {}) }),
   });
   return ((await response.json()) as { missing: string[] }).missing;
 };
@@ -36,7 +42,7 @@ export const askServerWhichAreMissing = async (hashes: string[]): Promise<string
  */
 export const findBooksMissingFromServer = async (
   library: Book[],
-  ask: (hashes: string[]) => Promise<string[]> = askServerWhichAreMissing,
+  ask: (hashes: string[]) => Promise<string[]> = (hashes) => askServerWhichAreMissing(hashes),
 ): Promise<Book[]> => {
   const candidates = booksToVerify(library);
   const missing = new Set<string>();

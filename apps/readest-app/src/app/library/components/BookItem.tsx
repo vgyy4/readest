@@ -5,6 +5,7 @@ import { MdCheckCircle, MdCheckCircleOutline } from 'react-icons/md';
 import {
   LiaCloudUploadAltSolid,
   LiaCloudDownloadAltSolid,
+  LiaExclamationCircleSolid,
   LiaHeadphonesSolid,
   LiaInfoCircleSolid,
 } from 'react-icons/lia';
@@ -17,6 +18,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useResponsiveSize } from '@/hooks/useResponsiveSize';
 import { LibraryCoverFitType, LibraryViewModeType } from '@/types/settings';
+import { eventDispatcher } from '@/utils/event';
 import { navigateToLogin } from '@/utils/nav';
 import { isReadestCloudStorageActive } from '@/services/sync/cloudSyncProvider';
 import { isFeedBook } from '@/services/rss/feedBookUrl';
@@ -55,6 +57,8 @@ const BookItem: React.FC<BookItemProps> = ({
   const { appService } = useEnv();
   const { settings } = useSettingsStore();
   const iconSize15 = useResponsiveSize(15);
+  // Not on this device, not on the server, and not a file opened in place from elsewhere.
+  const fileIsGone = !book.uploadedAt && !book.downloadedAt && !book.filePath;
 
   const [coverAspect, setCoverAspect] = useState<number | null>(null);
   useEffect(() => {
@@ -205,31 +209,52 @@ const BookItem: React.FC<BookItemProps> = ({
               // A feed book has no file to move either way, so it never gets a
               // cloud badge — it would only queue a transfer that fails (#5307).
               !isFeedBook(book) &&
-              (!book.uploadedAt || (book.uploadedAt && !book.downloadedAt)) && (
+              (fileIsGone ? (
+                // No file here and none on the server (the server said so): there is nothing to
+                // upload or download. Say what can be done instead of offering a button that fails.
                 <button
-                  aria-label={!book.uploadedAt ? _('Upload Book') : _('Download Book')}
+                  aria-label={_('File missing')}
                   className='show-cloud-button -m-2 p-2'
                   onPointerDown={(e) => e.stopPropagation()}
-                  onClick={() => {
-                    if (!user) {
-                      navigateToLogin(router);
-                      return;
-                    }
-                    if (!book.uploadedAt) {
-                      handleBookUpload(book);
-                    } else if (!book.downloadedAt) {
-                      handleBookDownload(book, { queued: true });
-                    }
-                  }}
+                  onClick={() =>
+                    eventDispatcher.dispatch('toast', {
+                      type: 'info',
+                      timeout: 6000,
+                      message: _(
+                        'The file for this book is not on this device or on the server. Import the file again to restore it, or remove the book.',
+                      ),
+                    })
+                  }
                 >
-                  {!book.uploadedAt && isReadestCloudStorageActive(settings) && (
-                    <LiaCloudUploadAltSolid size={iconSize15} />
-                  )}
-                  {book.uploadedAt && !book.downloadedAt && (
-                    <LiaCloudDownloadAltSolid size={iconSize15} />
-                  )}
+                  <LiaExclamationCircleSolid size={iconSize15} />
                 </button>
-              )
+              ) : (
+                (!book.uploadedAt || (book.uploadedAt && !book.downloadedAt)) && (
+                  <button
+                    aria-label={!book.uploadedAt ? _('Upload Book') : _('Download Book')}
+                    className='show-cloud-button -m-2 p-2'
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={() => {
+                      if (!user) {
+                        navigateToLogin(router);
+                        return;
+                      }
+                      if (!book.uploadedAt) {
+                        handleBookUpload(book);
+                      } else if (!book.downloadedAt) {
+                        handleBookDownload(book, { queued: true });
+                      }
+                    }}
+                  >
+                    {!book.uploadedAt && isReadestCloudStorageActive(settings) && (
+                      <LiaCloudUploadAltSolid size={iconSize15} />
+                    )}
+                    {book.uploadedAt && !book.downloadedAt && (
+                      <LiaCloudDownloadAltSolid size={iconSize15} />
+                    )}
+                  </button>
+                )
+              ))
             )}
           </div>
         </div>
