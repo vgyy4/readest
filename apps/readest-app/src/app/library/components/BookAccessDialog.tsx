@@ -32,12 +32,15 @@ const BookAccessDialog: React.FC<BookAccessDialogProps> = ({ book, onClose }) =>
   const [view, setView] = useState<View>('loading');
   const [state, setState] = useState<ProfilesState>({ hasPin: false, profiles: [] });
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [removedBy, setRemovedBy] = useState<Set<string>>(new Set());
   const [pinInput, setPinInput] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
   const loadAccess = async () => {
-    setSelected(new Set(await fetchBookAccess(book.hash, getSessionPin())));
+    const access = await fetchBookAccess(book.hash, getSessionPin());
+    setSelected(new Set(access.profileIds));
+    setRemovedBy(new Set(access.removedProfileIds));
     setView('access');
   };
 
@@ -159,6 +162,9 @@ const BookAccessDialog: React.FC<BookAccessDialogProps> = ({ book, onClose }) =>
                         }}
                       />
                       <span className='text-sm'>{profile.name}</span>
+                      {!selected.has(profile.id) && removedBy.has(profile.id) && (
+                        <span className='text-base-content/60 ms-auto text-xs'>{_('Removed')}</span>
+                      )}
                     </label>
                   </li>
                 ))}

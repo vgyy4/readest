@@ -167,3 +167,18 @@ describe('shareNewBooksWithOwner: the file arriving after the book', () => {
     expect(updates).toHaveLength(0);
   });
 });
+
+describe('a profile deleting a book', () => {
+  it("never touches the admin's copy: the admin keeps the book", async () => {
+    const { admin, rows, updates, upserts } = fakeAdmin([
+      book('kid', 'h1', { deleted_at: '2026-11-14T00:00:00.000Z', uploaded_at: 5 }),
+      book('owner', 'h1', { uploaded_at: null }),
+    ]);
+    await shareNewBooksWithOwner(admin, 'owner', 'kid', ['h1']);
+    const owner = rows.find((r) => r['user_id'] === 'owner')!;
+    expect(owner['deleted_at']).toBeNull();
+    expect(owner['uploaded_at']).toBeNull(); // not even the profile's mark is passed on
+    expect(updates).toHaveLength(0);
+    expect(upserts).toHaveLength(0);
+  });
+});

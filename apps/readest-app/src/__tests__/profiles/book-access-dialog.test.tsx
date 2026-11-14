@@ -51,7 +51,7 @@ beforeEach(() => {
   push.mockReset();
   push.mockResolvedValue(undefined);
   client.fetchProfiles.mockResolvedValue({ hasPin: false, profiles });
-  client.fetchBookAccess.mockResolvedValue(['kid']);
+  client.fetchBookAccess.mockResolvedValue({ profileIds: ['kid'], removedProfileIds: [] });
   client.setBookAccess.mockResolvedValue(undefined);
 });
 afterEach(() => {
@@ -75,6 +75,26 @@ describe('BookAccessDialog', () => {
     await waitFor(() => expect(client.setBookAccess).toHaveBeenCalledWith('abc', ['teen'], ''));
     expect(onClose).toHaveBeenCalled();
     expect(push).toHaveBeenCalledWith(['abc']);
+  });
+
+  it('says which profile removed the book, and does not say it of one that never had it', async () => {
+    client.fetchBookAccess.mockResolvedValue({ profileIds: [], removedProfileIds: ['teen'] });
+    render(<BookAccessDialog book={book} onClose={vi.fn()} />);
+    await screen.findByText('Teen');
+    const items = screen.getAllByRole('listitem');
+    expect(items[0]!.textContent).toBe('Kid'); // never had it: just unchecked
+    expect(items[1]!.textContent).toMatch(/Teen/);
+    expect(items[1]!.textContent).toMatch(/Removed/);
+    expect((screen.getAllByRole('checkbox')[1] as HTMLInputElement).checked).toBe(false);
+  });
+
+  it('lets the admin give the book back to a profile that removed it', async () => {
+    client.fetchBookAccess.mockResolvedValue({ profileIds: [], removedProfileIds: ['teen'] });
+    render(<BookAccessDialog book={book} onClose={vi.fn()} />);
+    await screen.findByText('Teen');
+    fireEvent.click(screen.getAllByRole('checkbox')[1]!);
+    fireEvent.click(screen.getByText('Save'));
+    await waitFor(() => expect(client.setBookAccess).toHaveBeenCalledWith('abc', ['teen'], ''));
   });
 
   it('says why when the book cannot be sent to the server, and changes nothing', async () => {
@@ -113,7 +133,7 @@ describe('BookAccessDialog', () => {
 
   it('says so when there are no profiles to choose from', async () => {
     client.fetchProfiles.mockResolvedValue({ hasPin: false, profiles: [] });
-    client.fetchBookAccess.mockResolvedValue([]);
+    client.fetchBookAccess.mockResolvedValue({ profileIds: [], removedProfileIds: [] });
     render(<BookAccessDialog book={book} onClose={() => {}} />);
     await screen.findByText(/no profiles yet/i);
     expect((screen.getByText('Save') as HTMLButtonElement).disabled).toBe(true);

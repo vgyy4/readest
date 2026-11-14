@@ -5,7 +5,9 @@ import { buildGrantRows, planBookGrants } from '@/libs/profiles/shared';
 
 /**
  * Which profiles can see one book: the admin's per-book view of the same grants
- * /api/profiles/books manages per profile. A profile holds its own catalog entry
+ * /api/profiles/books manages per profile. The admin's own copy never depends on a profile: when a
+ * profile deletes a book it only drops its own entry, the admin keeps the book, and this view lists
+ * that profile under `removedProfileIds` so the admin can see it no longer has it. A profile holds its own catalog entry
  * for each book it can see, so adding copies the admin's entry (no reading state)
  * and removing soft-deletes the profile's entry; the file itself is never copied.
  */
@@ -29,18 +31,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (profilesError) throw profilesError;
     const owned = (profiles ?? []).map((p) => p.profile_user_id as string);
 
-    const { data: held, error: heldError } = owned.length
+    const { data: entries, error: heldError } = owned.length
       ? await admin
           .from('books')
-          .select('user_id')
+          .select('user_id, deleted_at')
           .in('user_id', owned)
           .eq('book_hash', bookHash)
-          .is('deleted_at', null)
       : { data: [], error: null };
     if (heldError) throw heldError;
-    const current = (held ?? []).map((b) => b.user_id as string);
+    const current = (entries ?? []).filter((b) => !b.deleted_at).map((b) => b.user_id as string);
+    // Had the book, and no longer does: the profile deleted it (or the admin took it away).
+    const removed = (entries ?? [])
+      .filter((b) => b.deleted_at && !current.includes(b.user_id as string))
+      .map((b) => b.user_id as string);
 
-    if (req.method === 'GET') return res.status(200).json({ profileIds: current });
+    if (req.method === 'GET') {
+      return res.status(200).json({ profileIds: current, removedProfileIds: removed });
+    }
     if (req.method !== 'PUT') return res.status(405).json({ error: 'Method not allowed' });
 
     const desired = req.body?.profileIds;

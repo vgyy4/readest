@@ -69,13 +69,21 @@ export const setProfileBooks = async (profileId: string, bookHashes: string[], p
   );
 };
 
-/** The admin's per-book view: which profiles can see `bookHash`. */
-export const fetchBookAccess = async (bookHash: string, pin?: string): Promise<string[]> => {
+export interface BookAccess {
+  /** Profiles that can see the book. */
+  profileIds: string[];
+  /** Profiles that had it and no longer do (they deleted it, or it was taken away). */
+  removedProfileIds: string[];
+}
+
+/** The admin's per-book view: which profiles can see `bookHash`, and which dropped it. */
+export const fetchBookAccess = async (bookHash: string, pin?: string): Promise<BookAccess> => {
   const response = await fetchWithAuth(
     `${endpoint('/book-access')}?bookHash=${encodeURIComponent(bookHash)}`,
     { method: 'GET', headers: pinHeaders(pin) },
   );
-  return ((await response.json()) as { profileIds: string[] }).profileIds;
+  const body = (await response.json()) as Partial<BookAccess>;
+  return { profileIds: body.profileIds ?? [], removedProfileIds: body.removedProfileIds ?? [] };
 };
 
 export const setBookAccess = async (bookHash: string, profileIds: string[], pin?: string) => {
