@@ -17,6 +17,8 @@ import {
   StatPageRecord,
 } from '@/libs/sync';
 import { shareNewBooksWithOwner } from '@/libs/profiles/shareWithOwner';
+import { maybeRemoveGhostProfileCopies } from '@/libs/profiles/ghostCopies';
+import { objectExists } from '@/utils/object';
 import { validateUserAndToken } from '@/utils/access';
 import { DBBook, DBBookConfig } from '@/types/records';
 
@@ -733,6 +735,12 @@ export async function POST(req: NextRequest) {
       } catch (error) {
         console.warn("Could not share the profile's new books with the admin:", error);
       }
+    }
+
+    // Books the admin removed and the server has no file for leave the profiles too. Quiet,
+    // throttled, and never fails this sync.
+    if (ownerId) {
+      await maybeRemoveGhostProfileCopies(createSupabaseAdminClient(), ownerId, objectExists);
     }
 
     // Piggyback the per-book reading progress from the configs push onto the
