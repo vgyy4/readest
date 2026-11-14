@@ -11,6 +11,12 @@ export interface MultipartDeps {
   /** Send one part; `onBytes` reports how many of its bytes have gone so far. */
   putPart: (part: PartInfo, onBytes: (loaded: number, speed: number) => void) => Promise<void>;
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * Remove the server's record of `fileName`. Used when an older server plans a new upload from
+   * the size recorded by an earlier, abandoned attempt: with that record gone it plans from the
+   * file being sent.
+   */
+  discardStale?: (fileName: string) => Promise<void>;
 }
 
 /** The server cannot do multipart (e.g. R2 storage): the caller sends the file in one piece. */
@@ -27,6 +33,13 @@ export const friendlyUploadError = (error: unknown): Error => {
       'The server refused this upload as too large (a proxy such as Cloudflare caps one request at 100 MB).',
     );
   }
+  if (/SignatureDoesNotMatch/.test(message)) {
+    // Storage signs each part with its exact length: a server that planned the parts differently
+    // from the app makes every part fail this way. It is not a sign-in or Cloudflare problem.
+    return new Error(
+      'The storage server rejected the upload (its signature did not match). The server is probably out of date: update it, then try again.',
+    );
+  }
   if (/\b(401|403)\b/.test(message)) {
     return new Error(
       'The server did not accept the upload. Sign in again; if the server is behind Cloudflare Access, check the service token.',
@@ -36,6 +49,20 @@ export const friendlyUploadError = (error: unknown): Error => {
     return new Error('The upload timed out. Check the connection and try again.');
   }
   return error instanceof Error ? error : new Error(message);
+};
+
+const planFits = (parts: PartInfo[] | undefined, fileSize: number) => {
+  const wanted = planParts(fileSize);
+  return (
+    !!parts &&
+    parts.length === wanted.length &&
+    parts.every(
+      (p, i) =>
+        p.partNumber === wanted[i]!.partNumber &&
+        p.start === wanted[i]!.start &&
+        p.size === wanted[i]!.size,
+    )
+  );
 };
 
 /**
@@ -48,16 +75,26 @@ export const uploadInParts = async (
   fileSize: number,
   bookHash: string | undefined,
   onProgress: ((progress: ProgressPayload) => void) | undefined,
-  { request, putPart, sleep = defaultSleep }: MultipartDeps,
+  { request, putPart, sleep = defaultSleep, discardStale }: MultipartDeps,
 ): Promise<void> => {
-  let started: { uploadId?: string; parts?: PartInfo[] };
-  try {
-    started = await request({ action: 'start', fileName, fileSize, bookHash });
-  } catch (error) {
-    if (error instanceof Error && error.message === 'Multipart not supported') {
-      throw new MultipartUnsupported();
+  const start = async () => {
+    try {
+      return await request({ action: 'start', fileName, fileSize, bookHash });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Multipart not supported') {
+        throw new MultipartUnsupported();
+      }
+      throw error;
     }
-    throw error;
+  };
+  let started = await start();
+  // An older server plans from a stale record; clear it and start over, once.
+  if (started.uploadId && started.parts?.length && !planFits(started.parts, fileSize)) {
+    if (discardStale) {
+      await request({ action: 'abort', fileName, uploadId: started.uploadId }).catch(() => {});
+      await discardStale(fileName).catch(() => {});
+      started = await start();
+    }
   }
   const { uploadId, parts } = started;
   if (!uploadId) throw new Error('The server did not start the upload');
@@ -68,8 +105,11 @@ export const uploadInParts = async (
     // the upload is thrown away, so the server is not left with a record of a file that never came.
     if (!parts?.length) throw new Error('The server did not start the upload');
     // The server plans the parts; check it agrees with what the file needs.
-    if (parts.length !== planParts(fileSize).length)
-      throw new Error('The server planned the upload wrongly');
+    if (!planFits(parts, fileSize)) {
+      throw new Error(
+        'The server planned the upload wrongly; it is probably out of date. Update it and try again.',
+      );
+    }
     for (const part of parts) {
       for (let attempt = 1; ; attempt++) {
         try {

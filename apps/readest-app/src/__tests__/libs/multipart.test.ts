@@ -134,6 +134,52 @@ describe('uploadInParts', () => {
     expect(request.mock.calls.at(-1)![0]).toMatchObject({ action: 'abort', uploadId: 'u' });
   });
 
+  describe('a server that plans from a stale record left by an earlier attempt', () => {
+    // Same number of parts, but sizes from a different file: S3 signs each part's exact length,
+    // so sending the real bytes is refused with 403 SignatureDoesNotMatch.
+    const stale: PartInfo[] = parts.map((p) => ({ ...p, size: p.size - 1 }));
+    const actions = (request: { mock: { calls: unknown[][] } }) =>
+      request.mock.calls.map((c) => (c[0] as Record<string, unknown>)['action']);
+
+    it('clears the stale record and starts again, so the plan fits the file', async () => {
+      let starts = 0;
+      const request = vi.fn(async (body: Record<string, unknown>) =>
+        body['action'] === 'start'
+          ? { uploadId: `u${++starts}`, parts: starts === 1 ? stale : parts }
+          : {},
+      );
+      const discardStale = vi.fn(async () => {});
+      const sent: number[] = [];
+      await uploadInParts('h/book.m4b', size, 'h', undefined, {
+        request,
+        discardStale,
+        sleep: noSleep,
+        putPart: async (part) => {
+          sent.push(part.size);
+        },
+      });
+      expect(discardStale).toHaveBeenCalledWith('h/book.m4b');
+      expect(actions(request)).toEqual(['start', 'abort', 'start', 'complete']);
+      expect(sent).toEqual(parts.map((p) => p.size)); // only the right plan was sent
+    });
+
+    it('gives up with a clear message when the server keeps planning wrongly', async () => {
+      const request = vi.fn(async (body: Record<string, unknown>) =>
+        body['action'] === 'start' ? { uploadId: 'u', parts: stale } : {},
+      );
+      const putPart = vi.fn(async () => {});
+      await expect(
+        uploadInParts('f', size, undefined, undefined, {
+          request,
+          discardStale: async () => {},
+          putPart,
+        }),
+      ).rejects.toThrow(/planned.*out of date/s);
+      expect(putPart).not.toHaveBeenCalled();
+      expect(actions(request).at(-1)).toBe('abort');
+    });
+  });
+
   it('throws the upload away when the server starts one it cannot describe', async () => {
     const request = vi.fn(async (body: Record<string, unknown>) =>
       body['action'] === 'start' ? { uploadId: 'u', parts: [] } : {},
@@ -167,6 +213,14 @@ describe('friendlyUploadError', () => {
     expect(friendlyUploadError(new Error('Upload failed with status 524')).message).toMatch(
       /timed out/,
     );
+  });
+
+  it('blames the plan, not the sign-in, when storage rejects a part signature', () => {
+    const message = friendlyUploadError(
+      new Error('Upload failed with status 403: <Code>SignatureDoesNotMatch</Code>'),
+    ).message;
+    expect(message).toMatch(/out of date/);
+    expect(message).not.toMatch(/Cloudflare Access/);
   });
 
   it('keeps any other message', () => {

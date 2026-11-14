@@ -57,6 +57,9 @@ export const uploadFile = async (
     if (!temp && !media && needsMultipart(file.size)) {
       try {
         await uploadInParts(file.name, file.size, bookHash, onProgress, {
+          // An older server plans from a record an abandoned attempt left behind; clearing it
+          // lets the retry plan from this file.
+          discardStale: (name) => deleteFile(name),
           request: async (body) =>
             (
               await fetchWithAuth(API_ENDPOINTS.multipart, {
