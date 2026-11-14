@@ -65,6 +65,18 @@ export interface CalibreCustomColumn {
   extra?: number;
 }
 
+/** One file of an audiobook that is a folder of audio files (a book with several parts). */
+export interface AudioPart {
+  /** What the chapter is called: the file's title tag, else its name. */
+  title: string;
+  /** File extension, without the dot. */
+  ext: string;
+  /** Bytes. */
+  size: number;
+  /** Seconds. */
+  duration: number;
+}
+
 export type BookMetadata = {
   // NOTE: the title and author fields should be formatted
   title: string | LanguageMap;
@@ -94,6 +106,8 @@ export type BookMetadata = {
 
   calibreColumns?: CalibreCustomColumn[];
   feedUrl?: string;
+  /** An audiobook made of several files, in playing order (see libs/audiobook/folder.ts). */
+  audioParts?: AudioPart[];
 };
 
 export interface BookDoc {

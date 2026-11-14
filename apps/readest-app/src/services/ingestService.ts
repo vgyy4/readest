@@ -259,3 +259,44 @@ export async function ingestFile(
 
   return book;
 }
+
+export interface IngestAudioFolderOptions {
+  /** The folder, and the audio files in it that make up the book. */
+  dir: string;
+  files: string[];
+  books: Book[];
+  lookupIndex?: BookLookupIndex;
+  groupId?: string;
+  groupName?: string;
+}
+
+/**
+ * Ingest a folder of audio files as one audiobook (see `importAudioFolder`): group placement and
+ * the upload decision are the same as for any other imported book.
+ */
+export async function ingestAudioFolder(
+  opts: IngestAudioFolderOptions,
+  deps: IngestFileDeps,
+): Promise<Book | null> {
+  const { appService, settings, isLoggedIn } = deps;
+  const book = await appService.importAudioFolder(
+    opts.dir,
+    opts.files,
+    opts.books,
+    opts.lookupIndex,
+  );
+  if (!book) return null;
+  if (opts.groupId !== undefined) {
+    book.groupId = opts.groupId;
+    book.groupName = opts.groupName;
+  }
+  if (
+    isLoggedIn &&
+    !book.uploadedAt &&
+    settings.syncCategories?.book !== false &&
+    isReadestCloudStorageActive(settings)
+  ) {
+    transferManager.queueUpload(book);
+  }
+  return book;
+}

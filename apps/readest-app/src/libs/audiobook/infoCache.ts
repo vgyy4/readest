@@ -14,6 +14,8 @@ export interface AudioInfoCache {
   /** Bytes. */
   size: number;
   chapters: AudioChapter[];
+  /** Seconds each file of a book made of several files really lasts, once they have been heard. */
+  parts?: number[];
   color?: CoverColor;
   /** The tiny blurred cover used as the background. */
   blur?: string;

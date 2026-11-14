@@ -24,7 +24,9 @@ import type { LibrarySearchTarget } from '@/types/book';
 import { navigateToLibrary, navigateToLogin, navigateToReader } from '@/utils/nav';
 import { getBookWithUpdatedMetadata, listFormater } from '@/utils/book';
 import { getImportErrorMessage } from '@/services/errors';
-import { ingestFile } from '@/services/ingestService';
+import { ingestAudioFolder, ingestFile } from '@/services/ingestService';
+import { groupAudioFolders, holdUnsettledFolders } from '@/libs/audiobook/folder';
+import { isFolderImportable } from '@/services/audioFolderService';
 import { eventDispatcher } from '@/utils/event';
 import { ProgressPayload } from '@/utils/transfer';
 import { throttle } from '@/utils/throttle';
@@ -902,7 +904,10 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
   const importBooks = async (
     files: SelectedFile[],
     groupId?: string,
-    options: { silent?: boolean } = {},
+    // `audioFolders`: a folder holding several audio files is one audiobook (a chapter per file),
+    // as in the Voice app. Folder imports and watched folders ask for it; a hand-picked set of
+    // files stays what the user picked.
+    options: { silent?: boolean; audioFolders?: boolean } = {},
   ): Promise<{ failedPaths: string[] }> => {
     setLoading(true);
     const { library } = useLibraryStore.getState();
@@ -984,9 +989,60 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
       }
     };
 
+    const groupFor = (path: string | undefined, basePath: string | undefined) => {
+      let id = groupId;
+      let name = groupId !== undefined ? getGroupName(groupId) : undefined;
+      if (id === undefined && path && basePath) {
+        name = getFolderImportGroupName(path, basePath);
+        id = getGroupId(name);
+      }
+      return { id, name };
+    };
+
+    // Folders of audio files become one book each, before the single files are handled.
+    let singles = files;
+    if (options.audioFolders && appService) {
+      const plain = files.filter((f) => !!f.path && isFolderImportable(f.path));
+      const { folders } = groupAudioFolders(plain);
+      const grouped = new Set(folders.flatMap((f) => f.files));
+      singles = files.filter((f) => !grouped.has(f));
+      for (const folder of folders) {
+        const paths = folder.files.map((f) => f.path!);
+        try {
+          const { id, name } = groupFor(paths[0], folder.files[0]!.basePath);
+          const book = await ingestAudioFolder(
+            {
+              dir: folder.dir,
+              files: paths,
+              books: library,
+              lookupIndex,
+              groupId: id,
+              groupName: name,
+            },
+            {
+              appService,
+              settings: useSettingsStore.getState().settings,
+              isLoggedIn: !!user,
+              appBooksPrefix,
+            },
+          );
+          if (book) {
+            successfulImports.push(book.title);
+            await updateBooks(envConfig, [book], { skipSave: true });
+          }
+        } catch (error) {
+          failedPaths.push(...paths);
+          const errorMessage =
+            error instanceof Error ? _(getImportErrorMessage(error.message)) : '';
+          failedImports.push({ filename: getFilename(folder.dir), errorMessage });
+          console.error('Failed to import audio folder:', folder.dir, error);
+        }
+      }
+    }
+
     const concurrency = 4;
-    for (let i = 0; i < files.length; i += concurrency) {
-      const batch = files.slice(i, i + concurrency);
+    for (let i = 0; i < singles.length; i += concurrency) {
+      const batch = singles.slice(i, i + concurrency);
       const importedBooks = (await Promise.all(batch.map(processFile))).filter((book) => !!book);
       // Update store state per batch (so the UI can render imported books
       // incrementally) but defer disk persistence until the entire batch is
@@ -1071,7 +1127,12 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
           osPlatform,
         });
         // A file that is still being copied in is left for the next look.
-        const { ready, growing } = settleScannedFiles(fresh, autoImportSeenSizesRef.current);
+        const settled = settleScannedFiles(fresh, autoImportSeenSizesRef.current);
+        const { ready, growing } = holdUnsettledFolders(
+          settled.ready,
+          settled.growing,
+          autoImportSeenSizesRef.current,
+        );
         if (growing.length > 0) stillCopying = true;
         // Reproduce the folder's own "Folder Structure" choice: unless it was
         // imported flat, each file carries the watched folder as `basePath` so
@@ -1092,7 +1153,10 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
       }
     }
     if (newFiles.length > 0) {
-      const { failedPaths } = await importBooks(newFiles, undefined, { silent: true });
+      const { failedPaths } = await importBooks(newFiles, undefined, {
+        silent: true,
+        audioFolders: true,
+      });
       for (const p of failedPaths) {
         const key = normalizeFilePathForIndex(p, osPlatform);
         if (key) autoImportFailedPathsRef.current.add(key);
@@ -1764,7 +1828,7 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
     // preserving structure we leave groupId undefined so importBooks
     // derives nested groupNames from each file's basePath.
     const targetGroupId = result.flatten ? searchParams?.get('group') || '' : undefined;
-    importBooks(toImportFiles, targetGroupId);
+    importBooks(toImportFiles, targetGroupId, { audioFolders: true });
   };
 
   const handleSetSelectMode = (selectMode: boolean) => {

@@ -18,6 +18,18 @@ import {
   playbackPlan,
 } from '@/libs/audiobook/source';
 import { blurredCoverUrl, CoverColor, sampleCoverColor } from '@/libs/audiobook/palette';
+import { audioFormatOf } from '@/libs/audiobook/formats';
+import {
+  audioPartsOf,
+  extraPartFilename,
+  locatePart,
+  parsePartLocation,
+  partChapters,
+  partLocation,
+  partStart,
+  totalDuration,
+} from '@/libs/audiobook/folder';
+import type { AudioPart } from '@/libs/document';
 import { shrinkCover } from '@/libs/audiobook/cover';
 import {
   AudioChapter,
@@ -56,6 +68,10 @@ const savedPosition = (location: string | undefined, progress: [number, number] 
   return progress?.[0] ?? 0;
 };
 
+/** The parts with the lengths heard so far in place of the estimates from their tags. */
+const withLengths = (parts: AudioPart[], lengths: number[]) =>
+  parts.map((p, i) => ({ ...p, duration: lengths[i] ?? p.duration }));
+
 export const bookmarkSeconds = (note: Pick<BookNote, 'cfi'>) =>
   Number(note.cfi.slice(AUDIO_LOCATION.length));
 
@@ -80,10 +96,20 @@ export const useAudiobook = (book: Book) => {
   const [color, setColor] = useState<CoverColor | null>(cached?.color ?? null);
   const [coverBlur, setCoverBlur] = useState<string | null>(cached?.blur ?? null);
   const [error, setError] = useState('');
-  const [chapters, setChapters] = useState<AudioChapter[]>(cached?.chapters ?? []);
+  // A book that is a folder of audio files: each file is a chapter and they play in order.
+  const parts = useMemo(() => audioPartsOf(book), [book.hash, book.metadata?.audioParts]);
+  const multi = parts.length > 0;
+  const partLengths = useRef<number[]>(
+    cached?.parts?.length === parts.length ? cached.parts : parts.map((p) => p.duration),
+  );
+  const [chapters, setChapters] = useState<AudioChapter[]>(() =>
+    multi ? partChapters(withLengths(parts, partLengths.current)) : (cached?.chapters ?? []),
+  );
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0);
-  const [duration, setDuration] = useState(cached?.duration ?? 0);
+  const [duration, setDuration] = useState(
+    multi ? totalDuration(withLengths(parts, partLengths.current)) : (cached?.duration ?? 0),
+  );
   const [speed, setSpeedState] = useState(1);
   const [skipSeconds, setSkipState] = useState(readSkip);
   const [sleep, setSleepState] = useState<SleepOption>(null);
@@ -93,7 +119,21 @@ export const useAudiobook = (book: Book) => {
   const [now, setNow] = useState(Date.now());
 
   const resume = useRef(0);
-  const latest = useRef({ position: 0, duration: cached?.duration ?? 0 });
+  const latest = useRef({
+    position: 0,
+    duration: multi
+      ? totalDuration(withLengths(parts, partLengths.current))
+      : (cached?.duration ?? 0),
+    // For a book of several files: which file, and the second in it.
+    part: 0,
+    offset: 0,
+  });
+  const partRef = useRef(0);
+  // Keep playing when the next file has loaded (set when one file ends or is jumped away from).
+  const playOnLoad = useRef(false);
+  const playlist = useRef({ parts, multi });
+  playlist.current = { parts, multi };
+  const timeline = () => withLengths(playlist.current.parts, partLengths.current);
   const lastSaved = useRef({ config: 0, library: 0 });
   const chaptersRef = useRef<AudioChapter[]>([]);
   chaptersRef.current = chapters;
@@ -129,7 +169,9 @@ export const useAudiobook = (book: Book) => {
       {
         ...INIT_BOOK_CONFIG,
         ...config,
-        location: `${AUDIO_LOCATION}${progress[0]}`,
+        location: playlist.current.multi
+          ? partLocation(latest.current.part, latest.current.offset)
+          : `${AUDIO_LOCATION}${progress[0]}`,
         progress,
         updatedAt: stamp,
       },
@@ -170,6 +212,62 @@ export const useAudiobook = (book: Book) => {
     return blobUrlRef.current;
   };
 
+  /** Where in the whole book the listener is (a single file's own clock for an ordinary book). */
+  const currentPosition = useCallback(() => {
+    const at = audioRef.current?.currentTime ?? 0;
+    return playlist.current.multi ? partStart(timeline(), partRef.current) + at : at;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Point the player at one file of a book made of several, `offset` seconds in. */
+  const loadPart = async (index: number, offset: number, play: boolean) => {
+    const part = playlist.current.parts[index];
+    if (!appService || !part) throw new Error('The audio file is not ready.');
+    const path =
+      index === 0 ? getLocalBookFilename(book) : extraPartFilename(book.hash, index, part.ext);
+    if (!(await appService.exists(path, 'Books'))) {
+      throw new Error(`Part ${index + 1} of this book is not on this device.`);
+    }
+    const tauri = appService.appPlatform === 'tauri';
+    planRef.current = {
+      order: playbackPlan({ tauri, ios: !!appService.isIOSApp, size: part.size }),
+      index: 0,
+      path,
+      base: 'Books',
+      absPath: tauri ? await appService.resolveFilePath(path, 'Books') : '',
+      mime: audioMimeType(audioFormatOf(`x.${part.ext}`, undefined) ?? book.format),
+    };
+    const url = await sourceUrl(planRef.current.order[0]!);
+    partRef.current = index;
+    latest.current.part = index;
+    latest.current.offset = offset;
+    latest.current.position = partStart(timeline(), index) + offset;
+    setPosition(latest.current.position);
+    resume.current = offset;
+    playOnLoad.current = play;
+    setSrc(url);
+  };
+  const loadPartRef = useRef(loadPart);
+  loadPartRef.current = loadPart;
+
+  /** The real length of a file is known once it has loaded; the book's length follows. */
+  const learnLength = (index: number, seconds: number) => {
+    if (!(seconds > 0) || Math.abs((partLengths.current[index] ?? 0) - seconds) < 0.05) return;
+    partLengths.current[index] = seconds;
+    const list = timeline();
+    const total = totalDuration(list);
+    latest.current.duration = total;
+    setDuration(total);
+    const next = partChapters(list);
+    setChapters(next);
+    writeAudioInfo(book.hash, {
+      parts: [...partLengths.current],
+      duration: total,
+      size: list.reduce((sum, p) => sum + p.size, 0),
+      chapters: next,
+    });
+  };
+
   // Find the file, its chapters and cover, and where this profile left off.
   useEffect(() => {
     let cancelled = false;
@@ -177,6 +275,20 @@ export const useAudiobook = (book: Book) => {
     void (async () => {
       if (!appService) return;
       try {
+        if (playlist.current.multi) {
+          const config = await appService.loadBookConfig(book, settings);
+          if (cancelled) return;
+          const saved = parsePartLocation(config?.location);
+          const at =
+            saved && saved.index < playlist.current.parts.length
+              ? saved
+              : locatePart(timeline(), savedPosition(config?.location, book.progress));
+          setBookmarks((config?.booknotes ?? []).filter(isAudioBookmark));
+          latest.current.position = partStart(timeline(), at.index) + at.offset;
+          setPosition(latest.current.position);
+          await loadPartRef.current(at.index, at.offset, false);
+          return;
+        }
         // The copy Readest stored, or the original file for a book opened in place.
         const managed = getLocalBookFilename(book);
         let path = managed;
@@ -281,38 +393,55 @@ export const useAudiobook = (book: Book) => {
     };
   }, [coverUrl]);
 
+  /** Go to `to` seconds into the book: into another file if that is where it falls. */
+  const moveTo = useCallback((to: number) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    latest.current.position = to;
+    setPosition(to);
+    if (playlist.current.multi) {
+      const target = locatePart(timeline(), to);
+      latest.current.offset = target.offset;
+      if (target.index !== partRef.current) {
+        latest.current.part = target.index;
+        void loadPartRef.current(target.index, target.offset, !audio.paused).catch((e) => {
+          setError(e instanceof Error ? e.message : String(e));
+        });
+        return;
+      }
+      audio.currentTime = target.offset;
+      return;
+    }
+    audio.currentTime = to;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   /** Move to `seconds`. A big jump can be taken back for ten seconds ("Back to"). */
   const seekTo = useCallback((seconds: number, kind: JumpKind = 'seek') => {
     const audio = audioRef.current;
     if (!audio) return;
     const total = latest.current.duration || audio.duration || 0;
-    const from = audio.currentTime;
+    const from = currentPosition();
     const to = clampPosition(seconds, total);
     if (isUndoableJump(kind, from, to, chaptersRef.current)) {
       const at = Date.now();
       setJump({ id: at, from, at });
       setNow(at);
     }
-    audio.currentTime = to;
-    latest.current.position = to;
-    setPosition(to);
+    moveTo(to);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const skipBy = useCallback(
-    (delta: number) => seekTo((audioRef.current?.currentTime ?? 0) + delta, 'skip'),
-    [seekTo],
+    (delta: number) => seekTo(currentPosition() + delta, 'skip'),
+    [seekTo, currentPosition],
   );
 
   const undoJump = useCallback(() => {
     if (!jump) return;
-    const audio = audioRef.current;
-    if (audio) {
-      audio.currentTime = jump.from;
-      latest.current.position = jump.from;
-      setPosition(jump.from);
-    }
+    moveTo(jump.from);
     setJump(null);
-  }, [jump]);
+  }, [jump, moveTo]);
 
   const play = useCallback(() => void audioRef.current?.play().catch(() => {}), []);
   const pause = useCallback(() => audioRef.current?.pause(), []);
@@ -320,7 +449,7 @@ export const useAudiobook = (book: Book) => {
 
   const jumpChapter = useCallback(
     (direction: -1 | 1) => {
-      const at = audioRef.current?.currentTime ?? 0;
+      const at = currentPosition();
       const list = chaptersRef.current;
       const index = chapterIndexAt(list, at);
       // Back restarts the chapter first, as most players do, then goes to the one before.
@@ -332,7 +461,7 @@ export const useAudiobook = (book: Book) => {
             : list[index - 1];
       if (target) seekTo(target.start, 'chapter');
     },
-    [seekTo],
+    [seekTo, currentPosition],
   );
 
   const setSpeed = useCallback((value: number) => {
@@ -351,11 +480,11 @@ export const useAudiobook = (book: Book) => {
     (option: SleepOption) => {
       setSleepState(option);
       setNow(Date.now());
-      const at = audioRef.current?.currentTime ?? 0;
+      const at = currentPosition();
       const chapter = chaptersRef.current[chapterIndexAt(chaptersRef.current, at)];
       setDeadline(sleepDeadline(option, Date.now(), at, chapter?.end ?? at, speed));
     },
-    [speed],
+    [speed, currentPosition],
   );
 
   const saveBookmarks = useCallback(
@@ -381,7 +510,7 @@ export const useAudiobook = (book: Book) => {
   /** Save the current moment. */
   const addBookmark = useCallback(
     (label = '') => {
-      const at = Math.floor(audioRef.current?.currentTime ?? latest.current.position);
+      const at = Math.floor(audioRef.current ? currentPosition() : latest.current.position);
       const chapter = chaptersRef.current[chapterIndexAt(chaptersRef.current, at)];
       const stamp = Date.now();
       const bookmark: BookNote = {
@@ -395,7 +524,7 @@ export const useAudiobook = (book: Book) => {
       };
       return saveBookmarks([...bookmarks, bookmark]);
     },
-    [bookmarks, saveBookmarks],
+    [bookmarks, saveBookmarks, currentPosition],
   );
 
   const removeBookmark = useCallback(
@@ -497,19 +626,29 @@ export const useAudiobook = (book: Book) => {
       const audio = audioRef.current;
       if (!audio) return;
       if (Number.isFinite(audio.duration) && audio.duration > 0) {
-        setDuration(audio.duration);
-        latest.current.duration = audio.duration;
-        setChapters((list) => fitChapters(list, audio.duration));
+        if (playlist.current.multi) {
+          learnLength(partRef.current, audio.duration);
+        } else {
+          setDuration(audio.duration);
+          latest.current.duration = audio.duration;
+          setChapters((list) => fitChapters(list, audio.duration));
+        }
       }
       audio.playbackRate = speed;
       if (resume.current > 0) audio.currentTime = clampPosition(resume.current, audio.duration);
       resume.current = 0;
+      if (playOnLoad.current) {
+        playOnLoad.current = false;
+        void audio.play().catch(() => {});
+      }
     },
     onTimeUpdate: () => {
       const audio = audioRef.current;
       if (!audio) return;
-      setPosition(audio.currentTime);
-      latest.current.position = audio.currentTime;
+      const at = currentPosition();
+      setPosition(at);
+      latest.current.position = at;
+      latest.current.offset = audio.currentTime;
       const stamp = Date.now();
       if (!audio.paused && stamp - lastSaved.current.config >= CONFIG_SAVE_MS) {
         void persist(stamp - lastSaved.current.library >= LIBRARY_SAVE_MS);
@@ -521,6 +660,15 @@ export const useAudiobook = (book: Book) => {
       void persist(true);
     },
     onEnded: () => {
+      // One file of a book made of several has ended: carry on with the next, without stopping.
+      if (playlist.current.multi && partRef.current + 1 < playlist.current.parts.length) {
+        const next = partRef.current + 1;
+        void loadPartRef.current(next, 0, true).catch((e) => {
+          setPlaying(false);
+          setError(e instanceof Error ? e.message : String(e));
+        });
+        return;
+      }
       setPlaying(false);
       latest.current.position = latest.current.duration;
       void persist(true);
@@ -534,7 +682,9 @@ export const useAudiobook = (book: Book) => {
         void (async () => {
           try {
             const url = await sourceUrl(plan.order[plan.index]!);
-            resume.current = latest.current.position;
+            resume.current = playlist.current.multi
+              ? latest.current.offset
+              : latest.current.position;
             setSrc(url);
           } catch {
             setError(describeMediaError(audio?.error?.code));

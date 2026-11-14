@@ -34,6 +34,11 @@ export const DEFAULT_FORMAT_GROUPS: FormatGroup[] = [
   { id: 'fb2', label: 'FB2', exts: ['fb2'] },
   { id: 'cbz', label: 'CBZ/ZIP', exts: ['cbz', 'zip'] },
   { id: 'txt', label: 'TXT', exts: ['txt'] },
+  {
+    id: 'audio',
+    label: 'Audiobooks (MP3, M4B...)',
+    exts: ['mp3', 'm4b', 'm4a', 'aac', 'ogg', 'opus', 'flac', 'wav'],
+  },
 ];
 
 export interface ImportFromFolderResult {
@@ -152,7 +157,7 @@ interface ImportFromFolderDialogProps {
   onConfirm: (result: ImportFromFolderResult) => void;
 }
 
-const DEFAULT_SELECTED_GROUP_IDS = ['epub', 'pdf'];
+const DEFAULT_SELECTED_GROUP_IDS = ['epub', 'pdf', 'audio'];
 /** Shared by the import form and the watched-folders sub-page. */
 const DIALOG_BOX_CLASS = 'sm:min-w-[480px] sm:max-w-[480px] sm:h-auto sm:max-h-[90%]';
 const DEFAULT_MIN_SIZE_KB = 20;

@@ -19,6 +19,7 @@ import { ClosableFile } from '@/utils/file';
 import { ProgressHandler } from '@/utils/transfer';
 import { CLOUD_BOOKS_SUBDIR, CLOUD_REPLICAS_SUBDIR } from './constants';
 import { isBookFileContentSource, resolveBookContentSource } from './bookContent';
+import { audioPartsOf, extraPartFilename } from '@/libs/audiobook/folder';
 import { isProfileActive } from '@/libs/profiles/active';
 import { isBookInOtherProfileLibrary } from '@/libs/profiles/sharedBooks';
 
@@ -43,6 +44,12 @@ export async function deleteBook(
       // Purge wipes the whole directory below, so skip the per-file removal.
       if (await fs.exists(source.path, source.base)) {
         await fs.removeFile(source.path, source.base);
+      }
+      // The later parts of an audiobook made of several files sit beside the first.
+      const parts = audioPartsOf(book);
+      for (let i = 1; i < parts.length; i++) {
+        const extra = extraPartFilename(book.hash, i, parts[i]!.ext);
+        if (await fs.exists(extra, 'Books')) await fs.removeFile(extra, 'Books');
       }
     }
 
@@ -98,7 +105,13 @@ export async function deleteBook(
     book.uploadedAt &&
     !isProfileActive()
   ) {
-    const fps = [getRemoteBookFilename(book), getCoverFilename(book)];
+    const fps = [
+      getRemoteBookFilename(book),
+      getCoverFilename(book),
+      ...audioPartsOf(book)
+        .slice(1)
+        .map((part, i) => extraPartFilename(book.hash, i + 1, part.ext)),
+    ];
     for (const fp of fps) {
       const cfp = `${CLOUD_BOOKS_SUBDIR}/${fp}`;
       try {
@@ -222,7 +235,8 @@ export async function uploadBook(
     throw new Error('Book file not uploaded');
   }
 
-  const toUploadFpCount = coverExist ? 2 : 1;
+  const extraParts = audioPartsOf(book).slice(1);
+  const toUploadFpCount = (coverExist ? 2 : 1) + extraParts.length;
   const handleProgress = createProgressHandler(toUploadFpCount, completedFiles, onProgress);
 
   if (coverExist) {
@@ -243,6 +257,22 @@ export async function uploadBook(
     book.hash,
   );
   completedFiles.count++;
+
+  // The later parts of an audiobook made of several files, each a file of its own in the cloud.
+  for (const [i, part] of extraParts.entries()) {
+    const lfp = extraPartFilename(book.hash, i + 1, part.ext);
+    if (!(await fs.exists(lfp, 'Books'))) throw new Error('Book file not uploaded');
+    await uploadFileToCloud(
+      fs,
+      resolveFilePath,
+      lfp,
+      `${CLOUD_BOOKS_SUBDIR}/${lfp}`,
+      'Books',
+      handleProgress,
+      book.hash,
+    );
+    completedFiles.count++;
+  }
 
   book.deletedAt = null;
   book.updatedAt = Date.now();
@@ -345,6 +375,18 @@ export async function downloadBook(
   if (needDownBook) {
     toDownloadFpCount++;
   }
+  // The later parts of an audiobook made of several files, those not on this device yet.
+  const extraParts: { lfp: string; cfp: string }[] = [];
+  if (!onlyCover) {
+    const parts = audioPartsOf(book);
+    for (let i = 1; i < parts.length; i++) {
+      const lfp = extraPartFilename(book.hash, i, parts[i]!.ext);
+      if (redownload || !(await fs.exists(lfp, 'Books'))) {
+        extraParts.push({ lfp, cfp: `${CLOUD_BOOKS_SUBDIR}/${lfp}` });
+      }
+    }
+  }
+  toDownloadFpCount += extraParts.length;
 
   const handleProgress = createProgressHandler(toDownloadFpCount, completedFiles, onProgress);
 
@@ -374,6 +416,10 @@ export async function downloadBook(
     await downloadCloudFile(appService, localBooksDir, lfp, cfp, handleProgress);
     const localFullpath = `${localBooksDir}/${lfp}`;
     bookDownloaded = await fs.exists(localFullpath, 'None');
+    completedFiles.count++;
+  }
+  for (const { lfp, cfp } of extraParts) {
+    await downloadCloudFile(appService, localBooksDir, lfp, cfp, handleProgress);
     completedFiles.count++;
   }
   // some books may not have cover image, so we need to check if the book is downloaded

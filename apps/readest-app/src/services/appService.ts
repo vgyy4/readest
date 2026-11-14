@@ -15,7 +15,14 @@ import {
 } from '@/types/system';
 import { DatabaseOpts, DatabaseService } from '@/types/database';
 import { SchemaType } from '@/services/database/migrate';
-import { Book, BookConfig, BookContent, ImportBookOptions, ViewSettings } from '@/types/book';
+import {
+  Book,
+  BookConfig,
+  BookContent,
+  BookLookupIndex,
+  ImportBookOptions,
+  ViewSettings,
+} from '@/types/book';
 import type { BookNav } from '@/services/nav';
 import { getLibraryFilename, getLibraryBackupFilename } from '@/utils/book';
 
@@ -28,6 +35,7 @@ import type { ImportedDictionary } from './dictionaries/types';
 import type { SelectedFile } from '@/hooks/useFileSelector';
 
 import * as BookSvc from './bookService';
+import { importAudioFolder } from './audioFolderService';
 import * as CloudSvc from './cloudService';
 import * as DictSvc from './dictionaries/dictionaryService';
 import * as FontSvc from './fontService';
@@ -329,6 +337,19 @@ export abstract class BaseAppService implements AppService {
       // case-insensitive filesystems (macOS / iOS / Windows).
       osPlatform: this.osPlatform,
       ...options,
+    });
+  }
+
+  async importAudioFolder(
+    dir: string,
+    filePaths: string[],
+    books: Book[],
+    lookupIndex?: BookLookupIndex,
+  ): Promise<Book | null> {
+    return importAudioFolder(this.fs, dir, filePaths, books, {
+      saveBookConfig: this.saveBookConfig.bind(this),
+      generateCoverImageUrl: this.generateCoverImageUrl.bind(this),
+      lookupIndex,
     });
   }
 

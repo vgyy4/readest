@@ -1,6 +1,13 @@
 import { SystemSettings } from './settings';
 import type { RssFeed } from '@/types/rss';
-import { Book, BookConfig, BookContent, ImportBookOptions, ViewSettings } from './book';
+import {
+  Book,
+  BookConfig,
+  BookContent,
+  BookLookupIndex,
+  ImportBookOptions,
+  ViewSettings,
+} from './book';
 import { BookMetadata } from '@/libs/document';
 import type { BookNav } from '@/services/nav';
 import { ProgressHandler } from '@/utils/transfer';
@@ -177,6 +184,13 @@ export interface AppService {
   ): Promise<ImportDictionariesResult>;
   deleteDictionary(dict: ImportedDictionary): Promise<void>;
   importBook(file: string | File, books: Book[], options?: ImportBookOptions): Promise<Book | null>;
+  /** A folder of audio files imported as one audiobook (null when it holds fewer than two). */
+  importAudioFolder(
+    dir: string,
+    filePaths: string[],
+    books: Book[],
+    lookupIndex?: BookLookupIndex,
+  ): Promise<Book | null>;
   refreshBookMetadata(book: Book): Promise<boolean>;
   deleteBook(book: Book, deleteAction: DeleteAction): Promise<void>;
   uploadBook(book: Book, onProgress?: ProgressHandler): Promise<void>;

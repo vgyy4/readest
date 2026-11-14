@@ -408,3 +408,123 @@ describe('saving progress with a library that hands back a new book each time', 
     expect(mocks.appService.saveBookConfig.mock.calls.length).toBeLessThanOrEqual(3);
   });
 });
+
+describe('AudiobookPlayer with a book made of several files', () => {
+  const parts = [
+    { title: 'One', ext: 'mp3', size: 1, duration: 100 },
+    { title: 'Two', ext: 'mp3', size: 1, duration: 50 },
+    { title: 'Three', ext: 'mp3', size: 1, duration: 25 },
+  ];
+  const folderBook = {
+    hash: 'abc',
+    format: 'MP3',
+    title: 'Return',
+    author: 'Tolkien',
+    createdAt: 1,
+    updatedAt: 1,
+    metadata: { title: 'Return', author: 'Tolkien', language: 'en', audioParts: parts },
+  } as Book;
+
+  let urls = 0;
+  const opened = () => mocks.appService.openFile.mock.calls.map((c) => String(c[0]));
+  const loadedPart = async (seconds: number, src = 1) => {
+    await waitFor(() => expect(audio().getAttribute('src')).toBeTruthy());
+    Object.defineProperty(audio(), 'duration', { configurable: true, get: () => seconds });
+    fireEvent.loadedMetadata(audio());
+    return src;
+  };
+
+  beforeEach(() => {
+    urls = 0;
+    URL.createObjectURL = vi.fn(() => `blob:part-${urls++}`);
+    mocks.appService.openFile.mockClear();
+    mocks.appService.saveBookConfig.mockClear();
+    mocks.parse.mockClear();
+  });
+
+  it('opens the first file and shows a chapter for each, without reading any tags', async () => {
+    render(<AudiobookPlayer book={folderBook} onBack={() => {}} />);
+    await loadedPart(100);
+    expect(await screen.findByText('One')).toBeTruthy();
+    expect(opened()).toHaveLength(1);
+    expect(opened()[0]).toMatch(/Return\.mp3$/);
+    expect(mocks.parse).not.toHaveBeenCalled();
+  });
+
+  it('plays on into the next file when one ends', async () => {
+    render(<AudiobookPlayer book={folderBook} onBack={() => {}} />);
+    await loadedPart(100);
+    (HTMLMediaElement.prototype.play as ReturnType<typeof vi.fn>).mockClear();
+    fireEvent.ended(audio());
+    await waitFor(() => expect(opened()).toContain('abc/part-0002.mp3'));
+    await loadedPart(50);
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalled();
+    expect(await screen.findByText('Two')).toBeTruthy();
+  });
+
+  it('the last file ending is the end of the book', async () => {
+    mocks.appService.loadBookConfig.mockResolvedValue({ location: 'audio:p2:20' });
+    render(<AudiobookPlayer book={folderBook} onBack={() => {}} />);
+    await loadedPart(25);
+    mocks.appService.openFile.mockClear();
+    fireEvent.ended(audio());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(opened()).toEqual([]);
+  });
+
+  it('goes to the next file with Next chapter', async () => {
+    render(<AudiobookPlayer book={folderBook} onBack={() => {}} />);
+    await loadedPart(100);
+    fireEvent.click(screen.getByLabelText('Next chapter'));
+    await waitFor(() => expect(opened()).toContain('abc/part-0002.mp3'));
+  });
+
+  it('reaches a point in the book inside the right file', async () => {
+    render(<AudiobookPlayer book={folderBook} onBack={() => {}} />);
+    await loadedPart(100);
+    audio().currentTime = 95;
+    fireEvent.timeUpdate(audio());
+    fireEvent.click(screen.getByLabelText('Forward 20 seconds')); // 115 in the book: 15 into file 2
+    await waitFor(() => expect(opened()).toContain('abc/part-0002.mp3'));
+    await loadedPart(50);
+    expect(audio().currentTime).toBe(15);
+  });
+
+  it('resumes in the file and second where it was left', async () => {
+    mocks.appService.loadBookConfig.mockResolvedValue({ location: 'audio:p1:30' });
+    render(<AudiobookPlayer book={folderBook} onBack={() => {}} />);
+    await loadedPart(50);
+    expect(opened()).toHaveLength(1);
+    expect(opened()[0]).toBe('abc/part-0002.mp3');
+    expect(audio().currentTime).toBe(30);
+  });
+
+  it('saves the file and second when paused, so the place is exact', async () => {
+    mocks.appService.loadBookConfig.mockResolvedValue({ location: 'audio:p1:30' });
+    render(<AudiobookPlayer book={folderBook} onBack={() => {}} />);
+    await loadedPart(50);
+    audio().currentTime = 42;
+    fireEvent.timeUpdate(audio());
+    fireEvent.pause(audio());
+    await waitFor(() => expect(mocks.appService.saveBookConfig).toHaveBeenCalled());
+    const [, config] = mocks.appService.saveBookConfig.mock.calls.at(-1)!;
+    expect(config.location).toBe('audio:p1:42');
+    expect(config.progress).toEqual([142, 175]);
+  });
+
+  it('places an old plain position in the right file', async () => {
+    mocks.appService.loadBookConfig.mockResolvedValue({ location: 'audio:160' });
+    render(<AudiobookPlayer book={folderBook} onBack={() => {}} />);
+    await loadedPart(25);
+    expect(opened()[0]).toBe('abc/part-0003.mp3');
+    expect(audio().currentTime).toBe(10);
+  });
+
+  it('says which file is missing from the device', async () => {
+    mocks.appService.exists.mockImplementation(async (path: string) => !/part-0002/.test(path));
+    mocks.appService.loadBookConfig.mockResolvedValue({ location: 'audio:p1:5' });
+    render(<AudiobookPlayer book={folderBook} onBack={() => {}} />);
+    expect(await screen.findByText(/Part 2/)).toBeTruthy();
+    mocks.appService.exists.mockResolvedValue(true);
+  });
+});
