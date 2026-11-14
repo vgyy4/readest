@@ -19,6 +19,7 @@ vi.mock('@/utils/transfer', () => ({
 
 import { downloadFile } from '@/libs/storage';
 import { friendlyDownloadError } from '@/libs/downloadError';
+import { fetchWithAuth } from '@/utils/fetch';
 import { tauriDownload } from '@/utils/transfer';
 
 const app = {} as never;
@@ -42,6 +43,19 @@ describe('friendlyDownloadError', () => {
     expect(friendlyDownloadError(new Error('No download URL available')).message).toMatch(
       /does not have this file/i,
     );
+  });
+
+  it('turns the server\'s plain "File not found" into what to do about it', () => {
+    const e = friendlyDownloadError(new Error('File not found'));
+    expect(e.message).toMatch(/does not have this book/i);
+    expect(e.message).toMatch(/Wi-Fi/);
+  });
+
+  it('reports a file the server has no record of, without trying to download anything', async () => {
+    vi.mocked(fetchWithAuth).mockRejectedValueOnce(new Error('File not found'));
+    vi.mocked(tauriDownload).mockReset();
+    await expect(run()).rejects.toThrow(/does not have this book/i);
+    expect(vi.mocked(tauriDownload)).not.toHaveBeenCalled();
   });
 
   it('says a proxy timeout was a timeout', () => {

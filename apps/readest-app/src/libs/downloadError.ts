@@ -1,6 +1,12 @@
 /** What went wrong with a download, in words the user can act on. */
 export const friendlyDownloadError = (error: unknown): Error => {
   const message = error instanceof Error ? error.message : String(error);
+  // The server's own words when it has no record of the file.
+  if (/^file not found$/i.test(message.trim())) {
+    return new Error(
+      'The server does not have this book. Open Readest on a device that has it, on Wi-Fi, and it will be uploaded again.',
+    );
+  }
   if (/No download URL available/i.test(message)) {
     return new Error(
       'The server does not have this file. It may not have finished uploading from the other device.',
@@ -26,5 +32,9 @@ export const friendlyDownloadError = (error: unknown): Error => {
  */
 export const isRetryableDownloadError = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error);
-  return !/\b(401|403|404)\b/.test(message) && !/No download URL available/i.test(message);
+  return (
+    !/\b(401|403|404)\b/.test(message) &&
+    !/No download URL available/i.test(message) &&
+    !/^file not found$/i.test(message.trim())
+  );
 };
