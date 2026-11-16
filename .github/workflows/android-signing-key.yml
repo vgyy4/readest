@@ -1,0 +1,60 @@
+name: Create Android signing key
+
+# Makes the key the Android APK is signed with and stores it as the three repository secrets that
+# android-apk.yml reads (ANDROID_KEY_BASE64, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD). Nothing is
+# printed: the password is masked, and the values go to GitHub straight from the runner.
+#
+# GitHub's own workflow token cannot write secrets, so this needs one repository secret of your
+# own, SECRETS_PAT: a fine-grained personal access token for this repository only, with the
+# repository permission "Secrets: Read and write" (and nothing else). Delete the token once the
+# key exists.
+
+on:
+  workflow_dispatch:
+    inputs:
+      replace:
+        description: 'Replace a key that is already stored (the installed app must then be reinstalled)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  create-key:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.SECRETS_PAT }}
+      REPO: ${{ github.repository }}
+      REPLACE: ${{ inputs.replace }}
+    steps:
+      - name: Check the token
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Add the repository secret SECRETS_PAT first (see the top of this workflow file)."
+            exit 1
+          fi
+
+      - name: Stop if a key is already stored
+        run: |
+          if gh secret list --repo "$REPO" | cut -f1 | grep -qx 'ANDROID_KEY_BASE64' && [ "$REPLACE" != "true" ]; then
+            echo "::error::A signing key is already stored. Run again with 'replace' ticked to make a new one (the installed app must then be reinstalled)."
+            exit 1
+          fi
+
+      - name: Create the key and store it
+        run: |
+          set -euo pipefail
+          umask 077
+          dir=$(mktemp -d)
+          pass=$(openssl rand -hex 24)
+          echo "::add-mask::$pass"
+          keytool -genkeypair -keystore "$dir/key.jks" -alias readest \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass "$pass" -keypass "$pass" -dname "CN=Readest fork" > /dev/null 2>&1
+          base64 -w0 "$dir/key.jks" > "$dir/key.b64"
+          printf %s "$pass" | gh secret set ANDROID_KEY_PASSWORD --repo "$REPO"
+          printf %s "readest" | gh secret set ANDROID_KEY_ALIAS --repo "$REPO"
+          gh secret set ANDROID_KEY_BASE64 --repo "$REPO" < "$dir/key.b64"
+          rm -rf "$dir"
+          echo "The signing key is stored. Delete the SECRETS_PAT token and secret now."
