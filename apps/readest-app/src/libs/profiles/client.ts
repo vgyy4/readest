@@ -1,5 +1,6 @@
 import { getAPIBaseUrl } from '@/services/environment';
-import { fetchWithAuth, readJson } from '@/utils/fetch';
+import { fetchWithAuth } from '@/utils/fetch';
+import { readJson } from '@/utils/readJson';
 import { getActiveProfileId, setActiveProfileId } from './active';
 import {
   getCachedProfiles,

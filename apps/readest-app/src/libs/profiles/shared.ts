@@ -79,3 +79,40 @@ export const isProfileBookUpload = (fileName: unknown, bookHash: unknown): boole
   const rest = fileName.slice(folder.length);
   return rest.length > 0 && !rest.split('/').some((part) => part === '..' || part === '.');
 };
+
+/**
+ * Replica kinds whose files belong to the whole account: the fonts the admin (or any profile)
+ * installs are for everyone. Dictionaries and textures are not shared (they depend on the
+ * account's settings, which profiles do not use).
+ */
+export const PROFILE_SHARED_REPLICA_KINDS: readonly string[] = ['font'];
+
+/**
+ * Whether a profile may upload this replica file (an installed font): it must sit under its own
+ * `Readest/Replicas/<kind>/<id>/` folder, of a kind the account shares, nowhere else.
+ */
+export const isProfileReplicaUpload = (
+  fileName: unknown,
+  replicaKind: unknown,
+  replicaId: unknown,
+): boolean => {
+  if (typeof fileName !== 'string' || typeof replicaKind !== 'string') return false;
+  if (typeof replicaId !== 'string' || !/^[\w-]+$/.test(replicaId)) return false;
+  if (!PROFILE_SHARED_REPLICA_KINDS.includes(replicaKind)) return false;
+  const folder = `Readest/Replicas/${replicaKind}/${replicaId}/`;
+  if (!fileName.startsWith(folder)) return false;
+  const rest = fileName.slice(folder.length);
+  return rest.length > 0 && !rest.split('/').some((part) => part === '..' || part === '.');
+};
+
+/**
+ * Whether a profile may download one of the account's files: a book it has been granted, or a
+ * file of a shared replica kind (a font).
+ */
+export const profileMayDownload = (
+  record: { book_hash?: string | null; replica_kind?: string | null },
+  grantedBookHashes: ReadonlySet<string>,
+): boolean => {
+  if (record.replica_kind) return PROFILE_SHARED_REPLICA_KINDS.includes(record.replica_kind);
+  return !!record.book_hash && grantedBookHashes.has(record.book_hash);
+};

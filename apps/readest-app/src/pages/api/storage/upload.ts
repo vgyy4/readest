@@ -1,5 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { isProfileBookUpload, PROFILE_HEADER } from '@/libs/profiles/shared';
+import {
+  isProfileBookUpload,
+  isProfileReplicaUpload,
+  PROFILE_HEADER,
+} from '@/libs/profiles/shared';
 import { createSupabaseAdminClient } from '@/utils/supabase';
 import { corsAllMethods, runMiddleware } from '@/utils/cors';
 import {
@@ -36,9 +40,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const { fileName, fileSize, bookHash, replicaKind, replicaId, temp = false, media } = req.body;
 
   // A profile has no storage of its own: its books are stored once, in the account's, so what it
-  // adds is also there for the admin. It may upload nothing but the files of a book.
-  if (isProfile && (media || temp || !isProfileBookUpload(fileName, bookHash))) {
-    return res.status(403).json({ error: 'A profile can only upload book files' });
+  // adds is also there for the admin. It may upload nothing but the files of a book and the fonts
+  // it installs (which are the account's, for every profile).
+  if (
+    isProfile &&
+    (media ||
+      temp ||
+      !(
+        isProfileBookUpload(fileName, bookHash) ||
+        isProfileReplicaUpload(fileName, replicaKind, replicaId)
+      ))
+  ) {
+    return res.status(403).json({ error: 'A profile can only upload book and font files' });
   }
   const storageOwnerId = isProfile && ownerId ? ownerId : user.id;
 

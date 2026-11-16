@@ -86,12 +86,13 @@ describe('profile requests and sync scope', () => {
     }
   });
 
-  it("limits a profile's sync to its own books, progress, notes and stats", async () => {
+  it("limits a profile's sync to its own books, progress, notes and stats, and the account's fonts", async () => {
     const { isSyncCategoryEnabled } = await import('@/services/sync/syncCategories');
     setActiveProfileId(KID);
     expect(isSyncCategoryEnabled('settings')).toBe(false);
     expect(isSyncCategoryEnabled('dictionary')).toBe(false);
-    expect(isSyncCategoryEnabled('font')).toBe(false);
+    // The fonts the admin installs are for everyone.
+    expect(isSyncCategoryEnabled('font')).not.toBe(false);
     expect(isSyncCategoryEnabled('stats')).not.toBe(false);
   });
 });

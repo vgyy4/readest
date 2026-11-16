@@ -8,7 +8,8 @@ vi.mock('@/utils/access', () => ({
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
-import { fetchWithTimeout, fetchWithAuth, readJson } from '@/utils/fetch';
+import { fetchWithTimeout, fetchWithAuth } from '@/utils/fetch';
+import { readJson } from '@/utils/readJson';
 import { getAccessToken } from '@/utils/access';
 
 describe('fetchWithTimeout', () => {

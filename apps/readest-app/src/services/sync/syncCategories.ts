@@ -123,15 +123,17 @@ const PROVIDER_GATED_CATEGORIES: ReadonlySet<SyncCategory> = new Set([
 ] as SyncCategory[]);
 
 /**
- * A profile syncs only its own books, progress, notes and reading stats.
- * Everything else (settings, fonts, dictionaries, textures, catalogs,
- * credentials) is the account's, so a profile never reads or writes it.
+ * A profile syncs its own books, progress, notes and reading stats, and the account's fonts
+ * (what the admin installs is for everyone, and a font a profile installs is shared too).
+ * Everything else (settings, dictionaries, textures, catalogs, credentials) is the account's,
+ * so a profile never reads or writes it.
  */
 const PROFILE_CATEGORIES: ReadonlySet<SyncCategory> = new Set([
   'book',
   'progress',
   'note',
   'stats',
+  'font',
 ] as SyncCategory[]);
 
 export const isSyncCategoryEnabled = (id: string): boolean => {

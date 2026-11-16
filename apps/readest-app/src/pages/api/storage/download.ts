@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { PROFILE_HEADER } from '@/libs/profiles/shared';
+import { PROFILE_HEADER, profileMayDownload } from '@/libs/profiles/shared';
 import { createSupabaseAdminClient } from '@/utils/supabase';
 import { corsAllMethods, runMiddleware } from '@/utils/cors';
 import { getDownloadSignedUrl } from '@/utils/object';
@@ -95,7 +95,7 @@ async function processFileKeys(
 
   const { data: fileRecords, error: fileError } = await supabase
     .from('files')
-    .select('user_id, file_key, book_hash')
+    .select('user_id, file_key, book_hash, replica_kind')
     .eq('user_id', ownerId ?? userId)
     .in('file_key', fileKeys)
     .is('deleted_at', null);
@@ -129,7 +129,7 @@ async function processFileKeys(
 
       const { data: fallbackRecords, error: fallbackError } = await supabase
         .from('files')
-        .select('user_id, file_key, book_hash')
+        .select('user_id, file_key, book_hash, replica_kind')
         .eq('user_id', ownerId ?? userId)
         .in('book_hash', bookHashes)
         .is('deleted_at', null);
@@ -161,7 +161,7 @@ async function processFileKeys(
       .is('deleted_at', null);
     const grantedHashes = new Set(grantError ? [] : (granted ?? []).map((b) => b.book_hash));
     for (const [key, record] of fileRecordMap) {
-      if (!record.book_hash || !grantedHashes.has(record.book_hash)) fileRecordMap.delete(key);
+      if (!profileMayDownload(record, grantedHashes)) fileRecordMap.delete(key);
     }
   }
 
