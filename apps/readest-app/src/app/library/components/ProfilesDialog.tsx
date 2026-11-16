@@ -1,3 +1,4 @@
+import { PIN_MASK_STYLE, pinFieldAttributes } from '@/libs/profiles/pinField';
 import clsx from 'clsx';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Book } from '@/types/book';
@@ -225,9 +226,8 @@ const ProfilesDialog: React.FC<ProfilesDialogProps> = ({ books, onClose }) => {
 
   const pinField = (label: string) => (
     <input
-      type='password'
-      inputMode='numeric'
-      autoComplete='off'
+      {...pinFieldAttributes}
+      style={PIN_MASK_STYLE}
       maxLength={4}
       aria-label={label}
       placeholder='••••'

@@ -1,3 +1,4 @@
+import { PIN_MASK_STYLE, pinFieldAttributes } from '@/libs/profiles/pinField';
 import React, { useEffect, useState } from 'react';
 import { Book } from '@/types/book';
 import { useLibraryStore } from '@/store/libraryStore';
@@ -117,9 +118,8 @@ const BookAccessDialog: React.FC<BookAccessDialogProps> = ({ book, onClose }) =>
           >
             <p className='text-sm'>{_('Enter the master PIN to continue.')}</p>
             <input
-              type='password'
-              inputMode='numeric'
-              autoComplete='off'
+              {...pinFieldAttributes}
+              style={PIN_MASK_STYLE}
               maxLength={4}
               aria-label={_('Master PIN')}
               placeholder='••••'

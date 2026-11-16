@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 
 import { PIN_LENGTH } from '@/libs/crypto/applock';
+import { pinFieldAttributes } from '@/libs/profiles/pinField';
 
 interface PinInputProps {
   value: string;
@@ -18,7 +19,10 @@ interface PinInputProps {
    * stays available even after taps elsewhere on the page.
    */
   stickyFocus?: boolean;
-  /** Form-level autocomplete hint. */
+  /**
+   * Kept for callers, ignored: a PIN field is never offered to a password manager (see
+   * `pinFieldAttributes`), whatever the hint.
+   */
   autoComplete?: 'one-time-code' | 'current-password' | 'new-password';
 }
 
@@ -51,16 +55,7 @@ const PinDot = ({ filled, active }: { filled: boolean; active: boolean }) => (
 );
 
 const PinInput = forwardRef<PinInputHandle, PinInputProps>(function PinInput(
-  {
-    value,
-    onChange,
-    autoFocus,
-    shake,
-    disabled,
-    ariaLabel,
-    stickyFocus,
-    autoComplete = 'one-time-code',
-  },
+  { value, onChange, autoFocus, shake, disabled, ariaLabel, stickyFocus },
   ref,
 ) {
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -95,16 +90,13 @@ const PinInput = forwardRef<PinInputHandle, PinInputProps>(function PinInput(
       <span className='sr-only'>{ariaLabel}</span>
       <input
         ref={inputRef}
-        type='password'
-        inputMode='numeric'
-        pattern='[0-9]*'
+        {...pinFieldAttributes}
         maxLength={PIN_LENGTH}
         value={value}
         onChange={handleChange}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         disabled={disabled}
-        autoComplete={autoComplete}
         autoFocus={autoFocus || stickyFocus}
         aria-label={ariaLabel}
         className='absolute inset-0 z-10 cursor-pointer opacity-0'
