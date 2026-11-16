@@ -672,6 +672,84 @@ describe('TransferManager', () => {
       expect(transfer!.status).toBe('completed');
     });
 
+    test('starts the next download as soon as one finishes, not when the whole batch has', async () => {
+      const books = ['a', 'b', 'c'].map((hash) => makeBook({ hash, title: hash }));
+      const appService = makeAppService();
+      const releases: Record<string, () => void> = {};
+      (appService['downloadBook'] as Mock).mockImplementation(
+        (book: Book) =>
+          new Promise<void>((resolve) => {
+            releases[book.hash] = resolve;
+          }),
+      );
+      await transferManager.initialize(
+        appService as never,
+        () => books,
+        vi.fn().mockResolvedValue(undefined),
+        translationFn,
+      );
+      useTransferStore.setState({ maxConcurrent: 2 });
+      books.forEach((book, i) => {
+        transferManager.queueDownload(book);
+        // Oldest first, so the order is a, b, c.
+        const t = Object.values(useTransferStore.getState().transfers).at(-1)!;
+        useTransferStore.setState((state) => ({
+          transfers: { ...state.transfers, [t.id]: { ...t, createdAt: 1000 + i } },
+        }));
+      });
+      await vi.advanceTimersByTimeAsync(300);
+      expect(Object.keys(releases).sort()).toEqual(['a', 'b']);
+
+      // One finishes while the other is still going: the third starts at once.
+      releases['a']!();
+      await vi.advanceTimersByTimeAsync(300);
+      expect(Object.keys(releases).sort()).toEqual(['a', 'b', 'c']);
+      expect(useTransferStore.getState().getActiveTransfers()).toHaveLength(2);
+    });
+
+    test('runs as many at once as the setting allows', async () => {
+      const books = ['a', 'b', 'c', 'd'].map((hash) => makeBook({ hash, title: hash }));
+      const appService = makeAppService();
+      const started: string[] = [];
+      (appService['downloadBook'] as Mock).mockImplementation((book: Book) => {
+        started.push(book.hash);
+        return new Promise<void>(() => {});
+      });
+      await transferManager.initialize(
+        appService as never,
+        () => books,
+        vi.fn().mockResolvedValue(undefined),
+        translationFn,
+      );
+      useTransferStore.setState({ maxConcurrent: 4 });
+      books.forEach((book) => transferManager.queueDownload(book));
+      await vi.advanceTimersByTimeAsync(300);
+      expect(started.sort()).toEqual(['a', 'b', 'c', 'd']);
+    });
+
+    test('a higher limit takes effect at once, for what is waiting', async () => {
+      const books = ['a', 'b', 'c'].map((hash) => makeBook({ hash, title: hash }));
+      const appService = makeAppService();
+      const started: string[] = [];
+      (appService['downloadBook'] as Mock).mockImplementation((book: Book) => {
+        started.push(book.hash);
+        return new Promise<void>(() => {});
+      });
+      await transferManager.initialize(
+        appService as never,
+        () => books,
+        vi.fn().mockResolvedValue(undefined),
+        translationFn,
+      );
+      useTransferStore.setState({ maxConcurrent: 1 });
+      books.forEach((book) => transferManager.queueDownload(book));
+      await vi.advanceTimersByTimeAsync(300);
+      expect(started).toHaveLength(1);
+      useTransferStore.getState().setMaxConcurrent(3);
+      await vi.advanceTimersByTimeAsync(300);
+      expect(started).toHaveLength(3);
+    });
+
     test('successful delete calls appService.deleteBook', async () => {
       const book = makeBook({ hash: 'h1', title: 'Test Delete' });
       const appService = makeAppService();

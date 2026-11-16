@@ -55,6 +55,8 @@ class TransferManager {
   private updateBook: ((book: Book) => Promise<void>) | null = null;
   private _: TranslationFunc | null = null;
   private settingsUnsub: (() => void) | null = null;
+  private concurrencyUnsub: (() => void) | null = null;
+  private processAgain = false;
   private quotaFailureCount = 0;
   private quotaToastTimer: ReturnType<typeof setTimeout> | null = null;
   private wifiRecheckTimer: ReturnType<typeof setTimeout> | null = null;
@@ -237,6 +239,12 @@ class TransferManager {
       if (state.settings === prev.settings) return;
       this.reconcileUploadsWithProvider();
       this.processQueue();
+    });
+
+    // A change of how many transfers run at once takes effect for what is waiting.
+    this.concurrencyUnsub?.();
+    this.concurrencyUnsub = useTransferStore.subscribe((state, prev) => {
+      if (state.maxConcurrent !== prev.maxConcurrent) this.processQueue();
     });
 
     // Start processing queue
@@ -491,12 +499,20 @@ class TransferManager {
   }
 
   private async processQueue(): Promise<void> {
-    if (this.isProcessing) return;
+    // A call that arrives while a pass is running (a download queued in the same breath, a slot a
+    // finished transfer frees) asks for one more pass afterwards instead of being dropped.
+    if (this.isProcessing) {
+      this.processAgain = true;
+      return;
+    }
 
     this.isProcessing = true;
 
     try {
-      await this._processQueueInternal();
+      do {
+        this.processAgain = false;
+        await this._processQueueInternal();
+      } while (this.processAgain);
     } finally {
       this.isProcessing = false;
     }
@@ -531,18 +547,11 @@ class TransferManager {
 
     const toProcess = sortedPending.slice(0, availableSlots);
 
-    await Promise.all(toProcess.map((transfer) => this.executeTransfer(transfer)));
-
-    // Check if more items to process. Deferred book uploads (settings
-    // not yet hydrated) don't count — re-looping on them every 100ms
-    // would busy-wait; the settings subscription wakes them instead.
-    const newStore = useTransferStore.getState();
-    const processable = newStore
-      .getPendingTransfers()
-      .filter((t) => !this.isDeferredBookUpload(t) && !waiting(t) && !this.mustWaitForOwner(t));
-    if (processable.length > 0 && !newStore.isQueuePaused) {
-      setTimeout(() => this.processQueue(), 100);
-    }
+    // Start them and go on: this pass must not wait for them, or the slots stay shut while they
+    // run, and a download queued a moment later (or a slot a finished one frees) is only looked
+    // at when every one of them is done. Each one looks at the queue again when it ends.
+    // (executeTransfer marks itself in progress before its first await, so the slots count.)
+    for (const transfer of toProcess) void this.executeTransfer(transfer);
   }
 
   /** Was this book transfer asked for by a profile other than the one in use now? */

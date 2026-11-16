@@ -61,6 +61,8 @@ interface TransferState {
   isTransferQueueOpen: boolean;
   maxConcurrent: number;
   activeCount: number;
+  /** How many transfers run at once (1 to 6); kept on this device. */
+  setMaxConcurrent: (count: number) => void;
 
   // UI Actions
   setIsTransferQueueOpen: (isOpen: boolean) => void;
@@ -157,12 +159,45 @@ const generateTransferId = (): string => {
 export const isFailedLikeTransfer = (t: TransferItem): boolean =>
   t.status === 'failed' || (t.status === 'cancelled' && t.cancelReason !== 'policy');
 
+const MAX_CONCURRENT_KEY = 'readest-max-concurrent-transfers';
+export const MIN_CONCURRENT_TRANSFERS = 1;
+export const MAX_CONCURRENT_TRANSFERS = 6;
+export const DEFAULT_CONCURRENT_TRANSFERS = 3;
+
+export const clampConcurrent = (count: number) =>
+  Math.min(
+    MAX_CONCURRENT_TRANSFERS,
+    Math.max(
+      MIN_CONCURRENT_TRANSFERS,
+      Math.round(Number.isFinite(count) ? count : DEFAULT_CONCURRENT_TRANSFERS),
+    ),
+  );
+
+const savedConcurrent = (): number => {
+  try {
+    const saved = Number(localStorage.getItem(MAX_CONCURRENT_KEY));
+    return saved ? clampConcurrent(saved) : DEFAULT_CONCURRENT_TRANSFERS;
+  } catch {
+    return DEFAULT_CONCURRENT_TRANSFERS;
+  }
+};
+
 export const useTransferStore = create<TransferState>((set, get) => ({
   transfers: {},
   isQueuePaused: false,
   isTransferQueueOpen: false,
-  maxConcurrent: 2,
+  maxConcurrent: savedConcurrent(),
   activeCount: 0,
+
+  setMaxConcurrent: (count) => {
+    const next = clampConcurrent(count);
+    try {
+      localStorage.setItem(MAX_CONCURRENT_KEY, String(next));
+    } catch {
+      // Not saved: it still applies for this run.
+    }
+    set({ maxConcurrent: next });
+  },
 
   setIsTransferQueueOpen: (isOpen) => set({ isTransferQueueOpen: isOpen }),
 

@@ -11,6 +11,8 @@ import {
   MdError,
   MdCancel,
   MdDeleteSweep,
+  MdAdd,
+  MdRemove,
 } from 'react-icons/md';
 import { useTransferQueue } from '@/hooks/useTransferQueue';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -21,6 +23,8 @@ import { useSettingsStore } from '@/store/settingsStore';
 import { isReadestCloudStorageActive } from '@/services/sync/cloudSyncProvider';
 import { isFeedBook } from '@/services/rss/feedBookUrl';
 import {
+  MAX_CONCURRENT_TRANSFERS,
+  MIN_CONCURRENT_TRANSFERS,
   TransferItem,
   TransferStatus,
   isFailedLikeTransfer,
@@ -165,6 +169,8 @@ const TransferQueuePanel: React.FC = () => {
   const _ = useTranslation();
   const iconSize = useResponsiveSize(18);
   const setIsOpen = useTransferStore((state) => state.setIsTransferQueueOpen);
+  const maxConcurrent = useTransferStore((state) => state.maxConcurrent);
+  const setMaxConcurrent = useTransferStore((state) => state.setMaxConcurrent);
   const getVisibleLibrary = useLibraryStore((state) => state.getVisibleLibrary);
   const {
     transfers,
@@ -316,6 +322,34 @@ const TransferQueuePanel: React.FC = () => {
           <span>
             {_('Failed')}: {stats.failed}
           </span>
+        </div>
+
+        {/* How many transfers run at once */}
+        <div className='border-base-300 flex items-center justify-between gap-3 border-b px-4 py-2 text-sm'>
+          <span>{_('Simultaneous transfers')}</span>
+          <div className='flex items-center gap-2'>
+            <button
+              type='button'
+              className='btn btn-ghost btn-xs btn-circle'
+              aria-label={_('Fewer at once')}
+              disabled={maxConcurrent <= MIN_CONCURRENT_TRANSFERS}
+              onClick={() => setMaxConcurrent(maxConcurrent - 1)}
+            >
+              <MdRemove size={iconSize} />
+            </button>
+            <span className='min-w-4 text-center tabular-nums' aria-live='polite'>
+              {maxConcurrent}
+            </span>
+            <button
+              type='button'
+              className='btn btn-ghost btn-xs btn-circle'
+              aria-label={_('More at once')}
+              disabled={maxConcurrent >= MAX_CONCURRENT_TRANSFERS}
+              onClick={() => setMaxConcurrent(maxConcurrent + 1)}
+            >
+              <MdAdd size={iconSize} />
+            </button>
+          </div>
         </div>
 
         {/* Filter tabs */}
