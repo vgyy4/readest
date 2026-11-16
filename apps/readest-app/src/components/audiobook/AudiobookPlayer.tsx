@@ -437,7 +437,7 @@ export const AudiobookPlayerView: React.FC<AudiobookPlayerViewProps> = ({
         <AuroraBackground playing={player.playing} animate={animate} />
       )}
 
-      <div className='ab-scroll absolute inset-0 overflow-y-auto pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]'>
+      <div className='ab-scroll absolute inset-0 overflow-y-auto overflow-x-hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]'>
         {sideBySide ? (
           <div className='mx-auto flex h-full w-full items-stretch gap-8 px-6'>
             <div className='flex min-w-0 flex-1 flex-col py-2'>

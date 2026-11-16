@@ -248,9 +248,15 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
         // refreshed regardless so a not-yet-created service picks them up when
         // it activates.
         fun pushMetadata(title: String, artist: String, artwork: Bitmap?) {
+            Log.d("MediaPlaybackService", "pushMetadata title=$title artwork=${artwork?.width}x${artwork?.height} service=${instance != null}")
+            if (artwork != null) {
+                currentArtwork = artwork
+            } else if (title != currentTitle) {
+                // A different book that has no cover (yet): do not keep showing the last one's.
+                currentArtwork = null
+            }
             currentTitle = title
             currentArtist = artist
-            if (artwork != null) currentArtwork = artwork
             val service = instance ?: return
             Handler(Looper.getMainLooper()).post { service.applyMetadata() }
         }
@@ -474,14 +480,17 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
     // A fresh filename per cover keeps the URI stable within a book but changed
     // across books, so a new cover still refreshes. Cheap no-op while unchanged.
     private fun refreshArtworkUri() {
-        val art = currentArtwork ?: return
+        val art = currentArtwork ?: run {
+            currentArtworkUri = null
+            return
+        }
         if (art !== artworkUriSource || currentArtworkUri == null) {
             try {
                 val file = File(cacheDir, "tts_cover_${artworkUriVersion++}.png")
                 FileOutputStream(file).use { out -> art.compress(Bitmap.CompressFormat.PNG, 100, out) }
                 artworkUriFile?.delete()
                 artworkUriFile = file
-                currentArtworkUri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+                currentArtworkUri = FileProvider.getUriForFile(this, "$packageName.ttscover", file)
                 artworkUriSource = art
             } catch (e: Exception) {
                 Log.w("MediaPlaybackService", "Failed to publish artwork uri", e)
@@ -499,10 +508,15 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
         val builder = MediaMetadataCompat.Builder()
             .putString(MediaMetadataCompat.METADATA_KEY_TITLE, currentTitle)
             .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, currentArtist)
+            .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, currentTitle)
             .putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, currentArtwork)
+            // The system player asks for these in turn: some versions read only one of them.
+            .putBitmap(MediaMetadataCompat.METADATA_KEY_ART, currentArtwork)
+            .putBitmap(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON, currentArtwork)
             .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, currentDurationMs)
         currentArtworkUri?.let {
             builder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI, it.toString())
+            builder.putString(MediaMetadataCompat.METADATA_KEY_ART_URI, it.toString())
             builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON_URI, it.toString())
         }
         return builder.build()

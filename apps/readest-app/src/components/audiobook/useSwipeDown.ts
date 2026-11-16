@@ -65,6 +65,11 @@ export const useSwipeDown = ({
 
     const onMove = (event: TouchEvent) => {
       if (!gesture) return;
+      // Something inside took this movement (the cover's sideways swipe): it is not ours.
+      if (event.defaultPrevented) {
+        gesture = null;
+        return;
+      }
       const touch = event.touches[0];
       if (!touch) return;
       const dx = touch.clientX - gesture.x;

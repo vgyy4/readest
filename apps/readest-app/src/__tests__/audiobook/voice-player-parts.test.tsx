@@ -241,9 +241,14 @@ describe('PlaybackCover', () => {
     expect(props.onPrevious).toHaveBeenCalledTimes(1);
   });
 
-  it('springs back when let go before 28%', () => {
+  it('springs back when let go slowly before 28%', () => {
     const { card, props } = setup();
-    drag(card, -60)();
+    const clock = vi.spyOn(Date, 'now');
+    clock.mockReturnValue(1000);
+    const release = drag(card, -60);
+    clock.mockReturnValue(2000);
+    release();
+    clock.mockRestore();
     expect(props.onNext).not.toHaveBeenCalled();
     run(2500);
     expect(card.style.transform).toContain('translate3d(0px');
@@ -315,6 +320,47 @@ describe('PlaybackCover', () => {
     finger(card, [100, 100], [140, 100]).end();
     expect(props.onNext).not.toHaveBeenCalled();
     expect(props.onPrevious).toHaveBeenCalledTimes(1);
+  });
+
+  it('still takes a swipe that starts a little diagonal', () => {
+    const { card, props } = setup();
+    fireEvent.touchStart(card, { touches: [{ clientX: 250, clientY: 100 }] });
+    // 20 px sideways and 22 down: not clearly vertical, so it is the cover's.
+    const first = fireEvent.touchMove(card, { touches: [{ clientX: 230, clientY: 122 }] });
+    expect(first).toBe(false);
+    fireEvent.touchMove(card, { touches: [{ clientX: 100, clientY: 135 }] });
+    fireEvent.touchEnd(card, { touches: [], changedTouches: [{ clientX: 100, clientY: 135 }] });
+    expect(props.onNext).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts a short quick flick as a swipe', () => {
+    const { card, props } = setup();
+    finger(card, [200, 100], [130, 100]).end();
+    expect(props.onNext).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not strand the cover when it is touched while it flies out', async () => {
+    const { card, props } = setup();
+    finger(card, [250, 100], [100, 100]).end();
+    expect(props.onNext).toHaveBeenCalledTimes(1);
+    await runAsync(48);
+    // A finger lands on it mid-flight and lifts: nothing changes, and it still comes back.
+    fireEvent.touchStart(card, { touches: [{ clientX: 150, clientY: 100 }] });
+    fireEvent.touchEnd(card, { touches: [], changedTouches: [{ clientX: 150, clientY: 100 }] });
+    await runAsync(2500);
+    expect(card.style.transform).toContain('translate3d(0px');
+  });
+
+  it('picks the cover up where it is while it settles, without a jump', async () => {
+    const { card } = setup();
+    finger(card, [250, 100], [100, 100]).end();
+    await runAsync(250);
+    const x = () => parseFloat(card.style.transform.match(/translate3d\((-?[\d.]+)px/)![1]!);
+    const before = x();
+    expect(Math.abs(before)).toBeGreaterThan(5);
+    fireEvent.touchStart(card, { touches: [{ clientX: 150, clientY: 100 }] });
+    fireEvent.touchMove(card, { touches: [{ clientX: 160, clientY: 100 }] });
+    expect(Math.abs(x() - (before + 10))).toBeLessThan(1);
   });
 
   it('leaves a vertical swipe alone, for the player to close with', () => {

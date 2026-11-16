@@ -418,17 +418,19 @@ export const useAudiobook = (book: Book) => {
     let cancelled = false;
     let objectUrl = '';
     void (async () => {
-      let source = coverUrl;
+      // The stored cover first (the app's own file), then whatever address the player shows: a
+      // missing or unreadable file must not leave the phone without a picture.
+      let data: string | null = null;
       try {
         const file = await appService?.openFile(getCoverFilename(book), 'Books');
-        if (file) {
+        if (file && file.size > 0) {
           objectUrl = URL.createObjectURL(file);
-          source = objectUrl;
+          data = await coverDataUrl(objectUrl);
         }
       } catch {
         // No stored cover: use the address the player already shows.
       }
-      const data = await coverDataUrl(source);
+      if (!data) data = await coverDataUrl(coverUrl);
       if (cancelled || !data) return;
       artworkRef.current = data;
       sessionRef.current?.setArtwork(data);

@@ -489,6 +489,7 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
                     }
                 }
             } catch (e: Exception) {
+                android.util.Log.w("NativeTTSPlugin", "Could not load the cover", e)
                 null
             }
         }
@@ -503,6 +504,9 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
         coroutineScope.launch {
             try {
                 val artworkBitmap = args.artwork?.let { loadArtworkFromUrl(it) }
+                if (args.artwork != null && artworkBitmap == null) {
+                    android.util.Log.w("NativeTTSPlugin", "The cover (${args.artwork!!.length} chars) did not decode")
+                }
                 // In-process update on the running service; never startService()
                 // — that throws "app is in background" once backgrounded.
                 MediaPlaybackService.pushMetadata(title, artist, artworkBitmap)

@@ -238,25 +238,41 @@ export const fitCoverSize = (width: number, height: number, max: number) => {
   };
 };
 
+const drawCover = async (url: string, max: number, anonymous: boolean) => {
+  const image = new Image();
+  if (anonymous) image.crossOrigin = 'anonymous';
+  image.src = url;
+  await image.decode();
+  const { width, height } = fitCoverSize(image.naturalWidth, image.naturalHeight, max);
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  if (!context) return null;
+  context.drawImage(image, 0, 0, width, height);
+  return canvas.toDataURL('image/jpeg', 0.85);
+};
+
 /**
  * The cover as a small data URL. The phone's notification and lock screen load their picture
  * from a data URL or an http address; the app's own file and blob addresses mean nothing to them.
  */
 export const coverDataUrl = async (url: string, max = 512): Promise<string | null> => {
   try {
-    const image = new Image();
-    if (/^https?:/.test(url)) image.crossOrigin = 'anonymous';
-    image.src = url;
-    await image.decode();
-    const { width, height } = fitCoverSize(image.naturalWidth, image.naturalHeight, max);
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext('2d');
-    if (!context) return null;
-    context.drawImage(image, 0, 0, width, height);
-    return canvas.toDataURL('image/jpeg', 0.85);
+    return await drawCover(url, max, /^https?:/.test(url));
+  } catch {
+    // An address without cross-origin headers (the app's own file server) cannot be drawn
+    // directly: fetch it and draw the copy.
+  }
+  let copy = '';
+  try {
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    copy = URL.createObjectURL(await response.blob());
+    return await drawCover(copy, max, false);
   } catch {
     return null;
+  } finally {
+    if (copy) URL.revokeObjectURL(copy);
   }
 };

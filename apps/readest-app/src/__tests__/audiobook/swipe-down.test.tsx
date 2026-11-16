@@ -66,6 +66,22 @@ describe('swipe down to close a sheet', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('leaves a movement alone that something inside already took', () => {
+    const { onClose, dialog, mover } = open();
+    const inner = document.createElement('div');
+    dialog.appendChild(inner);
+    inner.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+    touch(inner, 'Start', 100, 100);
+    touch(inner, 'Move', 100, 160);
+    touch(inner, 'Move', 100, 400);
+    expect(mover.style.transform).toBe('');
+    touch(inner, 'End', 100, 400);
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it('springs back when it is let go too soon', () => {
     const { onClose, dialog, mover } = open();
     vi.setSystemTime(1000);

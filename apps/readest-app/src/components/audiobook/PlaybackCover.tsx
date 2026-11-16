@@ -25,6 +25,13 @@ const glowShadow = (elevation: number) =>
 const SWIPE_THRESHOLD = 0.28;
 const DOUBLE_TAP_MS = 320;
 const TAP_SLOP_PX = 12;
+/** How far the finger moves before it is a sideways swipe or a vertical one. */
+const AXIS_SLOP_PX = 8;
+/** The swipe down to close takes a movement this much more down than sideways: so does this. */
+const VERTICAL_BIAS = 1.2;
+/** A quick flick (px/ms) counts even if short, as long as it went this far (px). */
+const FLICK_VELOCITY = 0.5;
+const FLICK_DISTANCE_PX = 48;
 
 /**
  * The cover, as Voice's PlaybackCover: it grows to full size with a bounce when the book plays and
@@ -153,6 +160,9 @@ const PlaybackCover: React.FC<PlaybackCoverProps> = ({
   const gesture = useRef<{
     startX: number;
     startY: number;
+    startTime: number;
+    /** Where the card was when the drag began (it may still be settling from the last swipe). */
+    base: number;
     dragging: boolean;
     vertical: boolean;
   } | null>(null);
@@ -180,9 +190,19 @@ const PlaybackCover: React.FC<PlaybackCoverProps> = ({
   useEffect(() => () => pop.current?.cancel(), []);
 
   const begin = (x: number, y: number) => {
-    gesture.current = { startX: x, startY: y, dragging: false, vertical: false };
-    flight.current?.cancel();
-    flying.current = false;
+    // A card still on its way out is left to finish: grabbing it there would strand it off screen.
+    if (flying.current) {
+      gesture.current = null;
+      return;
+    }
+    gesture.current = {
+      startX: x,
+      startY: y,
+      startTime: Date.now(),
+      base: 0,
+      dragging: false,
+      vertical: false,
+    };
   };
 
   /** Follow the finger; true while this is a sideways swipe of the cover. */
@@ -192,16 +212,19 @@ const PlaybackCover: React.FC<PlaybackCoverProps> = ({
     const dx = x - g.startX;
     const dy = y - g.startY;
     if (!g.dragging) {
-      if (Math.abs(dx) + Math.abs(dy) < TAP_SLOP_PX) return false;
-      // Mostly vertical: not ours (the player closes with it); leave it alone.
-      if (Math.abs(dy) > Math.abs(dx)) {
+      if (Math.abs(dx) + Math.abs(dy) < AXIS_SLOP_PX) return false;
+      // Clearly vertical: not ours (the player closes with it). Anything else is a swipe; the
+      // player's swipe down uses the same rule, so exactly one of the two takes a movement.
+      if (Math.abs(dy) > Math.abs(dx) * VERTICAL_BIAS) {
         g.vertical = true;
         return false;
       }
       g.dragging = true;
+      g.base = drag.current.x;
+      g.startTime = Date.now();
       offset.stop();
     }
-    offset.snap(dx);
+    offset.snap(g.base + dx);
     const over = Math.abs(dx) > width() * SWIPE_THRESHOLD;
     if (over !== crossed.current) {
       crossed.current = over;
@@ -229,9 +252,11 @@ const PlaybackCover: React.FC<PlaybackCoverProps> = ({
     const dragged = drag.current.x;
     crossed.current = false;
     const w = width();
+    const velocity = Math.abs(dragged - g.base) / Math.max(1, Date.now() - g.startTime);
+    const flicked = Math.abs(dragged) > FLICK_DISTANCE_PX && velocity > FLICK_VELOCITY;
     if (cancelled) {
       offset.to(0, spring(STIFFNESS.Medium, 0.6));
-    } else if (Math.abs(dragged) > w * SWIPE_THRESHOLD) {
+    } else if (Math.abs(dragged) > w * SWIPE_THRESHOLD || flicked) {
       swipedChapter.current = true;
       if (dragged < 0) onNext();
       else onPrevious();

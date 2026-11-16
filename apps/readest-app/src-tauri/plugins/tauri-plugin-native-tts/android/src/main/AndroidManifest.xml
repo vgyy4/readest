@@ -5,4 +5,16 @@
       <action android:name="android.intent.action.TTS_SERVICE" />
     </intent>
   </queries>
+  <application>
+    <!-- The cover the system player shows is handed over as a content:// address of this provider. -->
+    <provider
+      android:name="com.readest.native_tts.CoverProvider"
+      android:authorities="${applicationId}.ttscover"
+      android:exported="false"
+      android:grantUriPermissions="true">
+      <meta-data
+        android:name="android.support.FILE_PROVIDER_PATHS"
+        android:resource="@xml/tts_cover_paths" />
+    </provider>
+  </application>
 </manifest>
