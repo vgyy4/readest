@@ -1,19 +1,141 @@
-//! Downloads a file in 1 MB parts, several at a time, each part tried again if it fails.
+//! Downloads a file in 1 MB parts, several at a time (how many is adjusted while it goes, see
+//! [`Adaptive`]), each part tried again if it fails.
 //!
 //! A download is only done when every part has arrived. (It used to skip a part that failed and
 //! report success, leaving a book with a hole in it that would not open.)
 
-use futures::stream::{self, StreamExt};
+use futures::stream::{FuturesUnordered, StreamExt};
 use reqwest::Client;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::fs::File;
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
 pub const PART_SIZE: u64 = 1024 * 1024;
-const PARALLEL_PARTS: usize = 8;
+/// How many parts are in flight: it starts here and is adjusted between the two limits.
+const START_PARTS: usize = 4;
+const MIN_PARTS: usize = 2;
+const MAX_PARTS: usize = 16;
+/// How often the speed is looked at.
+const WINDOW: Duration = Duration::from_secs(1);
 const ATTEMPTS: u32 = 3;
+
+/// One more is kept when the speed is at least this much better than before it.
+const GAIN: f64 = 1.1;
+/// The speed falling below this share of the best seen means there are too many.
+const DROP: f64 = 0.7;
+/// Windows to stay at a number that works before trying one more.
+const HOLD_WINDOWS: u32 = 4;
+
+#[derive(PartialEq, Clone, Copy, Debug)]
+enum Mode {
+    Probe,
+    Hold,
+}
+
+/// How many parts to fetch at the same time, adjusted while they go. Too few leave the link idle
+/// (each request waits for its own round trips); too many compete and fail. Every window the speed
+/// is measured: one more is added while that clearly makes it faster, one fewer is used when the
+/// speed falls, one more is tried again from time to time, and a failed request halves the number.
+/// The app's JavaScript uploader and parallel-file downloader (src/libs/adaptiveLimit.ts) follow
+/// the same rules; keep them alike.
+#[derive(Debug)]
+pub struct Adaptive {
+    min: usize,
+    max: usize,
+    current: usize,
+    mode: Mode,
+    before_probe: f64,
+    best: f64,
+    held: u32,
+    settling: u32,
+}
+
+impl Adaptive {
+    pub fn new(min: usize, start: usize, max: usize) -> Self {
+        let min = min.max(1);
+        let max = max.max(min);
+        Adaptive {
+            min,
+            max,
+            current: start.clamp(min, max),
+            mode: Mode::Probe,
+            before_probe: 0.0,
+            best: 0.0,
+            held: 0,
+            settling: 0,
+        }
+    }
+
+    pub fn limit(&self) -> usize {
+        self.current
+    }
+
+    fn change(&mut self, next: usize) {
+        self.current = next;
+        self.settling = 1;
+    }
+
+    fn hold(&mut self) {
+        self.mode = Mode::Hold;
+        self.held = 0;
+    }
+
+    /// Look at the speed (bytes a second over the last window); returns the number to use now.
+    pub fn step(&mut self, rate: f64) -> usize {
+        if self.settling > 0 {
+            self.settling -= 1;
+            return self.current;
+        }
+        if self.mode == Mode::Probe {
+            if rate >= self.before_probe * GAIN {
+                self.best = rate;
+                if self.current < self.max {
+                    self.before_probe = rate;
+                    self.change(self.current + 1);
+                } else {
+                    self.hold();
+                }
+            } else {
+                self.best = rate.max(self.before_probe);
+                self.change(self.current.saturating_sub(1).max(self.min));
+                self.hold();
+            }
+            return self.current;
+        }
+        if rate > self.best {
+            self.best = rate;
+        } else {
+            self.best = rate.max(self.best * 0.98);
+        }
+        if rate < self.best * DROP && self.current > self.min {
+            self.best = rate;
+            self.change(self.current - 1);
+            self.held = 0;
+        } else {
+            self.held += 1;
+            if self.held >= HOLD_WINDOWS && self.current < self.max {
+                self.mode = Mode::Probe;
+                self.before_probe = rate;
+                self.change(self.current + 1);
+            }
+        }
+        self.current
+    }
+
+    /// A request failed: halve the number, and stay there a while.
+    pub fn failed(&mut self) -> usize {
+        let lower = (self.current / 2).max(self.min);
+        if lower < self.current {
+            self.change(lower);
+        }
+        self.hold();
+        self.best = 0.0;
+        self.current
+    }
+}
 
 /// An error page can be long and full of markup; keep the part worth showing.
 pub fn tidy_body(body: &str) -> String {
@@ -41,11 +163,14 @@ async fn fetch_part(
     headers: &HashMap<String, String>,
     start: u64,
     end: u64,
+    struggling: &AtomicBool,
 ) -> Result<Vec<u8>, String> {
     let wanted = end - start + 1;
     let mut last = String::new();
     for attempt in 0..ATTEMPTS {
         if attempt > 0 {
+            // A part that has to be asked for again is a sign there are too many at once.
+            struggling.store(true, Ordering::Relaxed);
             tokio::time::sleep(Duration::from_millis(300 * (1 << attempt))).await;
         }
         let mut request = client
@@ -95,39 +220,90 @@ where
     let failure: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
     let on_part = &on_part;
 
-    stream::iter(0..total.div_ceil(PART_SIZE))
-        .for_each_concurrent(PARALLEL_PARTS, |index| {
-            let file = Arc::clone(&file);
-            let failure = Arc::clone(&failure);
-            async move {
-                // Once one part has failed for good the download is lost: stop asking for more.
-                if failure.lock().map(|f| f.is_some()).unwrap_or(true) {
-                    return;
-                }
-                let start = index * PART_SIZE;
-                let end = (start + PART_SIZE - 1).min(total - 1);
-                let outcome = match fetch_part(client, url, headers, start, end).await {
-                    Ok(bytes) => {
-                        let mut file = file.lock().await;
-                        match file.seek(std::io::SeekFrom::Start(start)).await {
-                            Ok(_) => file.write_all(&bytes).await.map(|_| bytes.len()),
-                            Err(error) => Err(error),
-                        }
-                        .map_err(|e| e.to_string())
-                    }
-                    Err(message) => Err(message),
+    // How many parts are in flight, adjusted every window from the speed the parts add up to.
+    let limit = Arc::new(AtomicUsize::new(START_PARTS));
+    let received = Arc::new(AtomicU64::new(0));
+    let struggling = Arc::new(AtomicBool::new(false));
+    let controller = {
+        let (limit, received, struggling) = (limit.clone(), received.clone(), struggling.clone());
+        tokio::spawn(async move {
+            let mut adaptive = Adaptive::new(MIN_PARTS, START_PARTS, MAX_PARTS);
+            let mut ticker = tokio::time::interval(WINDOW);
+            ticker.tick().await;
+            let mut last = (std::time::Instant::now(), 0u64);
+            loop {
+                ticker.tick().await;
+                let now = std::time::Instant::now();
+                let bytes = received.load(Ordering::Relaxed);
+                let seconds = now.duration_since(last.0).as_secs_f64();
+                let rate = if seconds > 0.0 {
+                    (bytes - last.1) as f64 / seconds
+                } else {
+                    0.0
                 };
-                match outcome {
-                    Ok(len) => on_part(len),
-                    Err(message) => {
-                        if let Ok(mut slot) = failure.lock() {
-                            slot.get_or_insert(message);
-                        }
+                last = (now, bytes);
+                let next = if struggling.swap(false, Ordering::Relaxed) {
+                    adaptive.failed()
+                } else {
+                    adaptive.step(rate)
+                };
+                limit.store(next, Ordering::Relaxed);
+            }
+        })
+    };
+
+    let fetch_one = |index: u64| {
+        let file = Arc::clone(&file);
+        let failure = Arc::clone(&failure);
+        let received = Arc::clone(&received);
+        let struggling = Arc::clone(&struggling);
+        async move {
+            // Once one part has failed for good the download is lost: stop asking for more.
+            if failure.lock().map(|f| f.is_some()).unwrap_or(true) {
+                return;
+            }
+            let start = index * PART_SIZE;
+            let end = (start + PART_SIZE - 1).min(total - 1);
+            let outcome = match fetch_part(client, url, headers, start, end, &struggling).await {
+                Ok(bytes) => {
+                    let mut file = file.lock().await;
+                    match file.seek(std::io::SeekFrom::Start(start)).await {
+                        Ok(_) => file.write_all(&bytes).await.map(|_| bytes.len()),
+                        Err(error) => Err(error),
+                    }
+                    .map_err(|e| e.to_string())
+                }
+                Err(message) => Err(message),
+            };
+            match outcome {
+                Ok(len) => {
+                    received.fetch_add(len as u64, Ordering::Relaxed);
+                    on_part(len)
+                }
+                Err(message) => {
+                    if let Ok(mut slot) = failure.lock() {
+                        slot.get_or_insert(message);
                     }
                 }
             }
-        })
-        .await;
+        }
+    };
+
+    let mut next = 0..total.div_ceil(PART_SIZE);
+    let mut in_flight = FuturesUnordered::new();
+    loop {
+        let failed = failure.lock().map(|f| f.is_some()).unwrap_or(true);
+        while !failed && in_flight.len() < limit.load(Ordering::Relaxed) {
+            match next.next() {
+                Some(index) => in_flight.push(fetch_one(index)),
+                None => break,
+            }
+        }
+        if in_flight.next().await.is_none() {
+            break;
+        }
+    }
+    controller.abort();
 
     let message = failure.lock().ok().and_then(|mut f| f.take());
     if let Some(message) = message {
@@ -270,6 +446,82 @@ mod tests {
         )
         .await;
         (result, path, transferred.load(Ordering::SeqCst))
+    }
+
+    /// Run `windows` windows of a link whose speed depends on how many parts are in flight.
+    fn drive(
+        adaptive: &mut Adaptive,
+        speed_at: impl Fn(usize) -> f64,
+        windows: usize,
+    ) -> Vec<usize> {
+        (0..windows)
+            .map(|_| {
+                adaptive.step(speed_at(adaptive.limit()));
+                adaptive.limit()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn goes_up_while_each_one_more_makes_it_clearly_faster() {
+        let mut a = Adaptive::new(1, 1, 6);
+        drive(&mut a, |n| 100.0 * n as f64, 12);
+        assert_eq!(a.limit(), 6);
+    }
+
+    #[test]
+    fn settles_where_one_more_stops_helping() {
+        let mut a = Adaptive::new(1, 1, 8);
+        drive(&mut a, |n| (100.0 * n as f64).min(300.0), 14);
+        assert!((3..=4).contains(&a.limit()), "{}", a.limit());
+    }
+
+    #[test]
+    fn comes_down_when_too_many_make_everything_slower() {
+        let mut a = Adaptive::new(1, 1, 8);
+        drive(
+            &mut a,
+            |n| {
+                if n <= 3 {
+                    100.0 * n as f64
+                } else {
+                    300.0 - 80.0 * (n - 3) as f64
+                }
+            },
+            30,
+        );
+        assert!((2..=4).contains(&a.limit()), "{}", a.limit());
+    }
+
+    #[test]
+    fn follows_the_network_as_it_changes() {
+        let mut a = Adaptive::new(1, 1, 8);
+        drive(&mut a, |n| 100.0 * n as f64, 12);
+        let high = a.limit();
+        assert!(high >= 5);
+        drive(&mut a, |n| (100.0 - 25.0 * (n as f64 - 1.0)).max(40.0), 40);
+        assert!(a.limit() < high);
+        drive(&mut a, |n| 100.0 * n as f64, 40);
+        assert!(a.limit() >= 5);
+    }
+
+    #[test]
+    fn halves_on_a_failure_and_stays_within_its_limits() {
+        let mut a = Adaptive::new(2, 8, 16);
+        assert_eq!(a.failed(), 4);
+        assert_eq!(a.failed(), 2);
+        assert_eq!(a.failed(), 2);
+        let top = drive(&mut Adaptive::new(2, 2, 5), |n| 1000.0 * n as f64, 40);
+        assert_eq!(*top.iter().max().unwrap(), 5);
+        assert!(*top.iter().min().unwrap() >= 2);
+    }
+
+    #[test]
+    fn ignores_the_window_in_which_it_changed() {
+        let mut a = Adaptive::new(1, 1, 4);
+        a.step(100.0);
+        assert_eq!(a.limit(), 2);
+        assert_eq!(a.step(0.0), 2);
     }
 
     #[tokio::test]

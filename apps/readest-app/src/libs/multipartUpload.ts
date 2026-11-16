@@ -1,4 +1,6 @@
+import { AdaptiveLimit } from '@/libs/adaptiveLimit';
 import { planParts, type PartPlan } from '@/libs/multipart';
+import { runInParallel } from '@/libs/parallelDownload';
 import type { ProgressPayload } from '@/utils/transfer';
 
 export interface PartInfo extends PartPlan {
@@ -23,6 +25,9 @@ export interface MultipartDeps {
 export class MultipartUnsupported extends Error {}
 
 const ATTEMPTS = 3;
+/** Parts of a file sent at once: where it starts, and the most it may grow to. */
+const START_PARTS = 2;
+const MAX_PARTS = 6;
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** What went wrong with an upload, in words the user can act on. */
@@ -67,8 +72,8 @@ const planFits = (parts: PartInfo[] | undefined, fileSize: number) => {
 
 /**
  * Upload a big file as several parts, each its own request, so none is larger than a proxy
- * allows. Parts are sent one after another (retrying each a few times), then the server joins
- * them. A failure throws the partial upload away on the server.
+ * allows. Parts are sent a few at a time (how many is adjusted while they go; each is tried a few
+ * times), then the server joins them. A failure throws the partial upload away on the server.
  */
 export const uploadInParts = async (
   fileName: string,
@@ -99,7 +104,6 @@ export const uploadInParts = async (
   const { uploadId, parts } = started;
   if (!uploadId) throw new Error('The server did not start the upload');
 
-  let sentBefore = 0;
   try {
     // Everything after the server has started an upload is inside this try: whatever goes wrong,
     // the upload is thrown away, so the server is not left with a record of a file that never came.
@@ -110,21 +114,45 @@ export const uploadInParts = async (
         'The server planned the upload wrongly; it is probably out of date. Update it and try again.',
       );
     }
-    for (const part of parts) {
-      for (let attempt = 1; ; attempt++) {
-        try {
-          await putPart(part, (loaded, speed) =>
-            onProgress?.({ progress: sentBefore + loaded, total: fileSize, transferSpeed: speed }),
-          );
-          break;
-        } catch (error) {
-          if (attempt >= ATTEMPTS) throw error;
-          await sleep(1000 * attempt);
+    // Several parts go at the same time, and how many is adjusted while they go: more while that
+    // makes the upload faster, fewer when it slows (a busy link, parts timing out), and fewer
+    // at once after a part had to be sent again.
+    const limit = new AdaptiveLimit({ min: 1, start: START_PARTS, max: MAX_PARTS });
+    const sent = parts.map(() => 0);
+    const speeds = parts.map(() => 0);
+    const report = () =>
+      onProgress?.({
+        progress: sent.reduce((a, b) => a + b, 0),
+        total: fileSize,
+        transferSpeed: speeds.reduce((a, b) => a + b, 0),
+      });
+    await runInParallel(
+      parts.length,
+      async (index) => {
+        const part = parts[index]!;
+        for (let attempt = 1; ; attempt++) {
+          try {
+            await putPart(part, (loaded, speed) => {
+              sent[index] = loaded;
+              speeds[index] = speed;
+              report();
+            });
+            break;
+          } catch (error) {
+            // Too many at once is the usual cause of a part timing out: send fewer.
+            limit.failed();
+            if (attempt >= ATTEMPTS) throw error;
+            sent[index] = 0;
+            speeds[index] = 0;
+            await sleep(1000 * attempt);
+          }
         }
-      }
-      sentBefore += part.size;
-      onProgress?.({ progress: sentBefore, total: fileSize, transferSpeed: 0 });
-    }
+        sent[index] = part.size;
+        speeds[index] = 0;
+        report();
+      },
+      { limit, bytes: () => sent.reduce((a, b) => a + b, 0) },
+    );
     await request({ action: 'complete', fileName, uploadId });
   } catch (error) {
     await request({ action: 'abort', fileName, uploadId }).catch(() => {});

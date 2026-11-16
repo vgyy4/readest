@@ -82,6 +82,75 @@ describe('uploadInParts', () => {
     expect([...progress].sort((a, b) => a - b)).toEqual(progress);
   });
 
+  describe('several parts at the same time, adjusted while they go', () => {
+    const big = PART_SIZE * 6;
+    const many: PartInfo[] = planParts(big).map((p) => ({
+      ...p,
+      uploadUrl: `https://s/p${p.partNumber}`,
+    }));
+    const requestFor = () =>
+      vi.fn(async (body: Record<string, unknown>) =>
+        body['action'] === 'start' ? { uploadId: 'u1', parts: many } : {},
+      );
+
+    it('sends two parts together to begin with, and adds the total of all of them to the progress', async () => {
+      let running = 0;
+      let most = 0;
+      let started = 0;
+      const releases: (() => void)[] = [];
+      const progress: number[] = [];
+      const done = uploadInParts('f', big, undefined, (p) => progress.push(p.progress), {
+        request: requestFor(),
+        sleep: noSleep,
+        putPart: (part, onBytes) =>
+          new Promise<void>((resolve) => {
+            running++;
+            started++;
+            most = Math.max(most, running);
+            onBytes(part.size / 4, 50);
+            releases.push(() => {
+              running--;
+              onBytes(part.size, 50);
+              resolve();
+            });
+          }),
+      });
+      await vi.waitFor(() => expect(releases).toHaveLength(2));
+      expect(most).toBe(2);
+      // Two quarter-parts have gone.
+      expect(progress.at(-1)).toBe((PART_SIZE / 4) * 2);
+      while (started < 6 || running > 0) {
+        releases.splice(0).forEach((release) => release());
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      await done;
+      expect(progress.at(-1)).toBe(big);
+      expect([...progress].sort((a, b) => a - b)).toEqual(progress);
+    });
+
+    it('sends fewer at once after a part had to be sent again', async () => {
+      let running = 0;
+      let failedAlready = false;
+      const runningWhenStarted: Record<number, number> = {};
+      await uploadInParts('f', big, undefined, undefined, {
+        request: requestFor(),
+        sleep: noSleep,
+        putPart: async (part) => {
+          if (part.partNumber === 1 && !failedAlready) {
+            failedAlready = true;
+            throw new Error('timed out');
+          }
+          runningWhenStarted[part.partNumber] = running;
+          running++;
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          running--;
+        },
+      });
+      // Down to one: each part after the first two waited for everything before it to end.
+      for (const n of [3, 4, 5, 6]) expect(runningWhenStarted[n], `part ${n}`).toBe(0);
+    });
+  });
+
   it('retries a part that fails, and carries on', async () => {
     const request = vi.fn(async (body: Record<string, unknown>) =>
       body['action'] === 'start' ? { uploadId: 'u1', parts } : {},

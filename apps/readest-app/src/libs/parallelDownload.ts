@@ -1,11 +1,11 @@
 import type { ProgressHandler, ProgressPayload } from '@/utils/transfer';
+import { AdaptiveLimit } from './adaptiveLimit';
 
 /** How many files of one book start together, and the most that may run at once. */
 export const PARALLEL_START = 2;
 export const PARALLEL_MAX = 4;
-/** How often the speed is looked at, and how much faster it must get for one more file to be added. */
+/** How often the speed is looked at. */
 const SAMPLE_MS = 2000;
-const GAIN_TO_GROW = 1.2;
 
 export interface CombinedProgress {
   /** The progress handler for file `index`. */
@@ -61,27 +61,29 @@ export const createCombinedProgress = (
 };
 
 interface PoolOptions {
-  start?: number;
-  max?: number;
-  /** Bytes received so far over all the files: how the speed is read. */
+  /**
+   * How many run at once, adjusted while they go. Pass one to react to failures (call `failed()`
+   * when a request had to be repeated) or to share it between pools.
+   */
+  limit?: AdaptiveLimit;
+  /** Bytes received so far over all the jobs: how the speed is read. */
   bytes: () => number;
   sampleMs?: number;
   now?: () => number;
 }
 
 /**
- * Run `count` jobs a few at a time. It starts with `start` and adds one more whenever the link
- * clearly still has room: the speed (bytes over the last window) is a fifth better than it was
- * before the previous file was added. A link that two files already fill stops there; a slow
- * connection per file (latency, a throttled host) goes on to the most. Once one job fails no
- * more are started, and the first failure is thrown when the ones running have ended.
+ * Run `count` jobs a few at a time, and keep adjusting how many while they go (see
+ * {@link AdaptiveLimit}): one more when that makes the transfer faster, one fewer when it gets
+ * slower, one more tried again now and then. Jobs already running are never cut short; the
+ * number only decides when the next one starts. Once one job fails no more are started, and the
+ * first failure is thrown when the ones running have ended.
  */
 export const runInParallel = (
   count: number,
   run: (index: number) => Promise<void>,
   {
-    start = PARALLEL_START,
-    max = PARALLEL_MAX,
+    limit = new AdaptiveLimit({ min: 1, start: PARALLEL_START, max: PARALLEL_MAX }),
     bytes,
     sampleMs = SAMPLE_MS,
     now = Date.now,
@@ -91,9 +93,7 @@ export const runInParallel = (
     if (count === 0) return resolve();
     let next = 0;
     let running = 0;
-    let limit = Math.max(1, Math.min(start, count));
     let failure: { error: unknown } | null = null;
-    let baseline: number | null = null;
     let last = { at: now(), bytes: bytes() };
     let timer: ReturnType<typeof setInterval> | null = null;
 
@@ -105,7 +105,7 @@ export const runInParallel = (
     };
 
     const launch = () => {
-      while (!failure && running < limit && next < count) {
+      while (!failure && running < limit.limit && next < count) {
         const index = next++;
         running++;
         run(index)
@@ -123,19 +123,12 @@ export const runInParallel = (
     const sample = () => {
       const at = now();
       const seconds = (at - last.at) / 1000;
-      const speed = seconds > 0 ? (bytes() - last.bytes) / seconds : 0;
-      last = { at, bytes: bytes() };
-      if (failure || next >= count || limit >= max || speed <= 0) return;
-      if (baseline === null || speed >= baseline * GAIN_TO_GROW) {
-        baseline = speed;
-        limit += 1;
-        launch();
-      } else {
-        // One more file did not make it faster: the link is full.
-        limit = max;
-        if (timer) clearInterval(timer);
-        timer = null;
-      }
+      const received = bytes();
+      const rate = seconds > 0 ? (received - last.bytes) / seconds : 0;
+      last = { at, bytes: received };
+      if (failure || running === 0) return;
+      limit.step(rate);
+      launch();
     };
 
     timer = setInterval(sample, sampleMs);
