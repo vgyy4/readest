@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { deleteBook, downloadBook, uploadBook } from '@/services/cloudService';
 import type { Book } from '@/types/book';
 import type { AppService, FileSystem } from '@/types/system';
@@ -14,13 +14,27 @@ vi.mock('@/utils/book', () => ({
   getConfigFilename: (book: Book) => `${book.hash}/config.json`,
 }));
 
+// A test may hold downloads open to see which run together.
+const downloadGate = vi.hoisted(() => ({
+  wait: async (_o: {
+    cfp: string;
+    onProgress?: (p: { progress: number; total: number; transferSpeed: number }) => void;
+  }) => {},
+}));
 const uploaded: string[] = [];
 const downloaded: { cfp: string; dst: string }[] = [];
 const deletedFromCloud: string[] = [];
 vi.mock('@/libs/storage', () => ({
-  downloadFile: vi.fn(async (o: { cfp: string; dst: string }) => {
-    downloaded.push({ cfp: o.cfp, dst: o.dst });
-  }),
+  downloadFile: vi.fn(
+    async (o: {
+      cfp: string;
+      dst: string;
+      onProgress?: (p: { progress: number; total: number; transferSpeed: number }) => void;
+    }) => {
+      downloaded.push({ cfp: o.cfp, dst: o.dst });
+      await downloadGate.wait(o);
+    },
+  ),
   uploadFile: vi.fn(async (file: File) => {
     uploaded.push(file.name);
   }),
@@ -177,5 +191,91 @@ describe('deleting a book made of several files', () => {
       'Readest/Books/abc/part-0002.mp3',
       'Readest/Books/abc/part-0003.m4a',
     ]);
+  });
+});
+
+describe('the files of a book download together', () => {
+  const app = {} as AppService;
+  const releases: Record<string, () => void> = {};
+  const reports: Record<string, (done: number, total: number) => void> = {};
+  beforeEach(() => {
+    for (const key of Object.keys(releases)) delete releases[key];
+    downloadGate.wait = (o) =>
+      new Promise<void>((resolve) => {
+        releases[o.cfp] = resolve;
+        reports[o.cfp] = (done, total) =>
+          o.onProgress?.({ progress: done, total, transferSpeed: 0 });
+      });
+  });
+  afterEach(() => {
+    downloadGate.wait = async () => {};
+  });
+
+  test('starts the cover and the first file together, the other parts as these end', async () => {
+    const fs = makeFs([]);
+    const done = downloadBook(
+      app,
+      fs as unknown as FileSystem,
+      '/data/Books',
+      book({ downloadedAt: null }),
+    );
+    await vi.waitFor(() => expect(downloaded).toHaveLength(2));
+    expect(downloaded.map((d) => d.cfp)).toEqual([
+      'Readest/Books/abc/cover.png',
+      'Readest/Books/abc/abc.mp3',
+    ]);
+    releases['Readest/Books/abc/cover.png']!();
+    await vi.waitFor(() => expect(downloaded).toHaveLength(3));
+    releases['Readest/Books/abc/abc.mp3']!();
+    await vi.waitFor(() => expect(downloaded).toHaveLength(4));
+    releases['Readest/Books/abc/part-0002.mp3']!();
+    releases['Readest/Books/abc/part-0003.m4a']!();
+    await done;
+  });
+
+  test('reports one progress for all of them, by their sizes', async () => {
+    const fs = makeFs(['abc/cover.png']);
+    const seen: number[] = [];
+    const b = book({
+      downloadedAt: null,
+      metadata: {
+        title: 'Return',
+        author: 'Tolkien',
+        language: 'en',
+        audioParts: [
+          { title: 'One', ext: 'mp3', size: 100, duration: 1 },
+          { title: 'Two', ext: 'mp3', size: 300, duration: 1 },
+        ],
+      },
+    });
+    const done = downloadBook(
+      app,
+      fs as unknown as FileSystem,
+      '/data/Books',
+      b,
+      false,
+      false,
+      (p) => seen.push(p.progress),
+    );
+    await vi.waitFor(() => expect(downloaded).toHaveLength(2));
+    reports['Readest/Books/abc/abc.mp3']!(50, 100);
+    reports['Readest/Books/abc/part-0002.mp3']!(150, 300);
+    // 200 of the 400 bytes: half, whichever file reported last.
+    expect(seen.at(-1)).toBeCloseTo(50, 5);
+    releases['Readest/Books/abc/abc.mp3']!();
+    releases['Readest/Books/abc/part-0002.mp3']!();
+    await done;
+    expect(seen.at(-1)).toBeCloseTo(100, 5);
+  });
+
+  test('a part that fails fails the download, and the cover failing does not', async () => {
+    const fs = makeFs(['abc/Return.mp3']);
+    downloadGate.wait = async (o) => {
+      if (o.cfp.endsWith('part-0002.mp3')) throw new Error('refused');
+      if (o.cfp.endsWith('cover.png')) throw new Error('no cover');
+    };
+    await expect(
+      downloadBook(app, fs as unknown as FileSystem, '/data/Books', book({ downloadedAt: null })),
+    ).rejects.toThrow('refused');
   });
 });

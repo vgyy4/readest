@@ -20,6 +20,7 @@ import { ProgressHandler } from '@/utils/transfer';
 import { CLOUD_BOOKS_SUBDIR, CLOUD_REPLICAS_SUBDIR } from './constants';
 import { isBookFileContentSource, resolveBookContentSource } from './bookContent';
 import { audioPartsOf, extraPartFilename } from '@/libs/audiobook/folder';
+import { createCombinedProgress, runInParallel } from '@/libs/parallelDownload';
 import { isProfileActive } from '@/libs/profiles/active';
 import { isBookInOtherProfileLibrary } from '@/libs/profiles/sharedBooks';
 
@@ -353,6 +354,9 @@ export async function downloadBookCovers(
   );
 }
 
+/** What a cover counts for in a download's progress (bytes): a small picture next to the audio. */
+const COVER_WEIGHT = 200_000;
+
 export async function downloadBook(
   appService: AppService,
   fs: FileSystem,
@@ -364,64 +368,72 @@ export async function downloadBook(
 ): Promise<void> {
   let bookDownloaded = false;
   let bookCoverDownloaded = false;
-  const completedFiles = { count: 0 };
-  let toDownloadFpCount = 0;
   const needDownCover = !(await fs.exists(getCoverFilename(book), 'Books')) || redownload;
   const needDownBook =
     (!onlyCover && !(await fs.exists(getLocalBookFilename(book), 'Books'))) || redownload;
+
+  // What is to come: the cover, the book's file, and the later parts of an audiobook made of
+  // several files (those not on this device yet). They download together.
+  const parts = onlyCover ? [] : audioPartsOf(book);
+  const jobs: { kind: 'cover' | 'book' | 'part'; lfp: string; cfp: string; weight: number }[] = [];
   if (needDownCover) {
-    toDownloadFpCount++;
+    const lfp = getCoverFilename(book);
+    jobs.push({ kind: 'cover', lfp, cfp: `${CLOUD_BOOKS_SUBDIR}/${lfp}`, weight: COVER_WEIGHT });
   }
   if (needDownBook) {
-    toDownloadFpCount++;
+    jobs.push({
+      kind: 'book',
+      lfp: getLocalBookFilename(book),
+      cfp: `${CLOUD_BOOKS_SUBDIR}/${getRemoteBookFilename(book)}`,
+      weight: parts[0]?.size || 10_000_000,
+    });
   }
-  // The later parts of an audiobook made of several files, those not on this device yet.
-  const extraParts: { lfp: string; cfp: string }[] = [];
-  if (!onlyCover) {
-    const parts = audioPartsOf(book);
-    for (let i = 1; i < parts.length; i++) {
-      const lfp = extraPartFilename(book.hash, i, parts[i]!.ext);
-      if (redownload || !(await fs.exists(lfp, 'Books'))) {
-        extraParts.push({ lfp, cfp: `${CLOUD_BOOKS_SUBDIR}/${lfp}` });
-      }
+  for (let i = 1; i < parts.length; i++) {
+    const lfp = extraPartFilename(book.hash, i, parts[i]!.ext);
+    if (redownload || !(await fs.exists(lfp, 'Books'))) {
+      jobs.push({
+        kind: 'part',
+        lfp,
+        cfp: `${CLOUD_BOOKS_SUBDIR}/${lfp}`,
+        weight: parts[i]!.size || 1_000_000,
+      });
     }
   }
-  toDownloadFpCount += extraParts.length;
 
-  const handleProgress = createProgressHandler(toDownloadFpCount, completedFiles, onProgress);
+  const combined = createCombinedProgress(
+    jobs.map((job) => job.weight),
+    onProgress,
+  );
 
   if (!(await fs.exists(getDir(book), 'Books'))) {
     await fs.createDir(getDir(book), 'Books');
   }
 
-  try {
-    if (needDownCover) {
-      const lfp = getCoverFilename(book);
-      const cfp = `${CLOUD_BOOKS_SUBDIR}/${lfp}`;
-      await downloadCloudFile(appService, localBooksDir, lfp, cfp, handleProgress);
-      bookCoverDownloaded = true;
-    }
-  } catch (error) {
-    // don't throw error here since some books may not have cover images at all
-    console.log(`Failed to download cover file for book: '${book.title}'`, error);
-  } finally {
-    if (needDownCover) {
-      completedFiles.count++;
-    }
-  }
-
-  if (needDownBook) {
-    const lfp = getLocalBookFilename(book);
-    const cfp = `${CLOUD_BOOKS_SUBDIR}/${getRemoteBookFilename(book)}`;
-    await downloadCloudFile(appService, localBooksDir, lfp, cfp, handleProgress);
-    const localFullpath = `${localBooksDir}/${lfp}`;
-    bookDownloaded = await fs.exists(localFullpath, 'None');
-    completedFiles.count++;
-  }
-  for (const { lfp, cfp } of extraParts) {
-    await downloadCloudFile(appService, localBooksDir, lfp, cfp, handleProgress);
-    completedFiles.count++;
-  }
+  await runInParallel(
+    jobs.length,
+    async (index) => {
+      const job = jobs[index]!;
+      try {
+        await downloadCloudFile(
+          appService,
+          localBooksDir,
+          job.lfp,
+          job.cfp,
+          combined.handler(index),
+        );
+        if (job.kind === 'cover') bookCoverDownloaded = true;
+        if (job.kind === 'book')
+          bookDownloaded = await fs.exists(`${localBooksDir}/${job.lfp}`, 'None');
+        combined.finish(index);
+      } catch (error) {
+        if (job.kind !== 'cover') throw error;
+        // don't throw error here since some books may not have cover images at all
+        console.log(`Failed to download cover file for book: '${book.title}'`, error);
+        combined.finish(index);
+      }
+    },
+    { bytes: combined.bytes },
+  );
   // some books may not have cover image, so we need to check if the book is downloaded
   if (bookDownloaded || (!onlyCover && !needDownBook)) {
     book.downloadedAt = Date.now();
