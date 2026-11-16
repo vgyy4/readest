@@ -1,7 +1,8 @@
 import clsx from 'clsx';
 import React, { useState } from 'react';
-import { MdAdd, MdBookmarkAdd, MdDeleteOutline, MdMoreHoriz, MdRemove } from 'react-icons/md';
+import { MdAdd, MdBookmarkAdd, MdDeleteOutline, MdRemove } from 'react-icons/md';
 import { playButtonPolygon } from '@/libs/audiobook/shapes';
+import NowPlayingBars from './NowPlayingBars';
 import { BookNote } from '@/types/book';
 import { useTranslation } from '@/hooks/useTranslation';
 import { type UiStyle, UI_STYLES, uiStyleLabel } from '@/libs/uiStyle';
@@ -46,7 +47,10 @@ export const Sheet: React.FC<{
         tall ? 'h-[86vh]' : 'max-h-[78vh]',
       )}
       data-surface=''
-      style={{ background: 'var(--ab-container-high)', color: 'var(--ab-text)' }}
+      style={{
+        background: tall ? 'var(--ab-surface)' : 'var(--ab-container-high)',
+        color: 'var(--ab-text)',
+      }}
       onClick={(e) => e.stopPropagation()}
     >
       <div
@@ -54,7 +58,7 @@ export const Sheet: React.FC<{
         style={{ background: 'var(--ab-text-muted)', opacity: 0.4 }}
       />
       <div className='mb-3 flex items-baseline justify-between px-2'>
-        <h2 className='font-serif text-[28px] leading-tight'>{title}</h2>
+        <h2 className='font-book text-2xl font-semibold leading-tight'>{title}</h2>
         {aside}
       </div>
       {children}
@@ -120,71 +124,86 @@ const chipStyle = (active: boolean): React.CSSProperties => ({
 /** The scalloped "cookie" Voice puts on the chapter that is playing. */
 const COOKIE = playButtonPolygon(false);
 
+/** Voice's list shape: the first card has big top corners, the last big bottom ones, the rest small. */
+const OUTER = 20;
+const INNER = 4;
+const segmentRadius = (index: number, count: number) => {
+  const top = index === 0 ? OUTER : INNER;
+  const bottom = index === count - 1 ? OUTER : INNER;
+  return `${top}px ${top}px ${bottom}px ${bottom}px`;
+};
+
 export const ChapterSheet: React.FC<{
   chapters: AudioChapter[];
   current: number;
+  /** The book is playing: the bars on the current chapter dance. */
+  playing?: boolean;
   onPick: (chapter: AudioChapter) => void;
   onClose: () => void;
-}> = ({ chapters, current, onPick, onClose }) => {
+}> = ({ chapters, current, playing = false, onPick, onClose }) => {
   const _ = useTranslation();
-  // Open at the chapter that is playing, not at the top of a long list.
-  const scrollToCurrent = (el: HTMLLIElement | null) => el?.scrollIntoView?.({ block: 'center' });
+  // Opens with the chapter before the playing one in view above it, as Voice does.
+  const scrollTo = (el: HTMLLIElement | null) => el?.scrollIntoView?.({ block: 'start' });
+  const anchor = Math.max(0, current - 1);
   return (
     <Sheet
       title={_('Chapters')}
       onClose={onClose}
       aside={
-        <span className='text-base tabular-nums' style={{ color: 'var(--ab-primary)' }}>
+        <span className='text-sm tabular-nums' style={{ color: 'var(--ab-primary)' }}>
           {current + 1} / {chapters.length}
         </span>
       }
       tall
     >
-      <ul className='flex flex-col gap-1.5'>
+      <ul className='flex flex-col gap-0.5 pb-2'>
         {chapters.map((chapter, index) => {
-          const playing = index === current;
+          const isCurrent = index === current;
           return (
             <li
               key={`${index}-${chapter.start}`}
-              // The rows nearest the one playing arrive first, then the sheet settles.
               className='ab-row-in'
               style={{ '--i': Math.min(Math.abs(index - current), 12) } as React.CSSProperties}
-              ref={playing ? scrollToCurrent : undefined}
+              ref={index === anchor ? scrollTo : undefined}
             >
               <button
                 type='button'
-                aria-current={playing ? 'true' : undefined}
-                className='ab-press flex w-full items-center gap-4 rounded-[22px] px-4 py-3.5 text-start'
+                aria-current={isCurrent ? 'true' : undefined}
+                className='ab-press flex w-full items-center gap-4 px-4 py-3 text-start'
                 style={{
-                  background: playing ? 'var(--ab-primary)' : 'var(--ab-container)',
-                  color: playing ? 'var(--ab-on-primary)' : 'var(--ab-text)',
+                  borderRadius: segmentRadius(index, chapters.length),
+                  background: isCurrent ? 'var(--ab-primary-container)' : 'var(--ab-surface-high)',
+                  color: isCurrent ? 'var(--ab-on-primary-container)' : 'var(--ab-text)',
                 }}
                 onClick={() => onPick(chapter)}
               >
-                {playing ? (
+                {isCurrent ? (
                   <span
                     data-chapter-playing=''
                     className='flex h-11 w-11 shrink-0 items-center justify-center'
-                    style={{ clipPath: COOKIE, background: 'var(--ab-container-high)' }}
+                    style={{ clipPath: COOKIE, background: 'var(--ab-primary)' }}
                   >
-                    <MdMoreHoriz size={22} style={{ color: 'var(--ab-text)' }} />
+                    <NowPlayingBars playing={playing} size={20} color='var(--ab-on-primary)' />
                   </span>
                 ) : (
                   <span
                     data-chapter-number=''
-                    className='flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-base font-medium tabular-nums'
-                    style={{ background: 'var(--ab-container-high)', color: 'var(--ab-primary)' }}
+                    className='flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-base tabular-nums'
+                    style={{ background: 'var(--ab-container)', color: 'var(--ab-text)' }}
                   >
                     {index + 1}
                   </span>
                 )}
-                <span className='min-w-0 flex-1 font-serif text-lg leading-snug'>
+                <span
+                  className={clsx(
+                    'font-book line-clamp-2 min-w-0 flex-1 text-base leading-6',
+                    isCurrent && 'font-semibold',
+                  )}
+                  style={index < current ? { color: 'var(--ab-text-muted)' } : undefined}
+                >
                   {chapter.title}
                 </span>
-                <span
-                  className='shrink-0 text-sm tabular-nums'
-                  style={{ color: playing ? 'var(--ab-on-primary)' : 'var(--ab-text-muted)' }}
-                >
+                <span className='shrink-0 text-xs tabular-nums' style={{ opacity: 0.8 }}>
                   {formatClock(chapter.start)}
                 </span>
               </button>

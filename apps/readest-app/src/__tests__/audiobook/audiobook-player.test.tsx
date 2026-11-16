@@ -225,7 +225,15 @@ describe('AudiobookPlayer', () => {
     fireEvent.click(screen.getByLabelText('Next chapter'));
     expect(screen.getByText(/^Back to/)).toBeTruthy();
     await act(async () => {
-      vi.advanceTimersByTime(11_000);
+      vi.advanceTimersByTime(9_000);
+    });
+    expect(screen.getByText(/^Back to/)).toBeTruthy();
+    // Gone after ten seconds, once it has finished shrinking away.
+    await act(async () => {
+      vi.advanceTimersByTime(2_500);
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(500);
     });
     expect(screen.queryByText(/^Back to/)).toBeNull();
   });

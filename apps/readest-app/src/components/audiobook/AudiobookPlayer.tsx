@@ -1,17 +1,13 @@
 import clsx from 'clsx';
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   MdBedtime,
   MdBedtimeOff,
+  MdBookmarkAdd,
   MdCollectionsBookmark,
-  MdExpandMore,
-  MdHeadphones,
+  MdKeyboardArrowDown,
   MdMoreVert,
-  MdReplay,
-  MdSkipNext,
-  MdSkipPrevious,
   MdSpeed,
-  MdUndo,
   MdViewList,
 } from 'react-icons/md';
 import { Book } from '@/types/book';
@@ -29,9 +25,16 @@ import {
   jumpPill,
   remainingAtSpeed,
 } from '@/libs/audiobook/player';
+import ActionToolbar, { ToolbarItem } from './ActionToolbar';
+import AuroraBackground from './AuroraBackground';
 import BookProgressBar from './BookProgressBar';
+import ChapterSwitcher from './ChapterSwitcher';
+import JumpBackPill from './JumpBackPill';
+import PlaybackCover from './PlaybackCover';
 import PlayButton from './PlayButton';
+import SkipButton from './SkipButton';
 import WavySlider from './WavySlider';
+import { useEntrance } from './useEntrance';
 import {
   BookmarksSheet,
   ChapterSheet,
@@ -69,23 +72,24 @@ const GLASS_CSS = `
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), inset 0 -1px 0 rgba(255, 255, 255, 0.08),
     0 8px 24px rgba(0, 0, 0, 0.18);
 }
-.ab-glass > header, .ab-glass > main, .ab-glass > [role='presentation'] { position: relative; z-index: 1; }
+.ab-glass > .ab-scroll { position: relative; z-index: 1; }
 .ab-glass > [role='presentation'] { position: fixed; z-index: 50; }
 `;
 
-const SWIPE_PX = 60;
-const LONG_PRESS_MS = 500;
+/** Below this height (px) the controls get Voice's compact spacing and a smaller play button. */
+const COMPACT_HEIGHT = 700;
+const MAX_CONTENT_WIDTH = 520;
 
-const tonalButton =
-  'ab-press flex h-12 w-12 items-center justify-center rounded-full disabled:opacity-30';
+const topButton =
+  'ab-tonal relative flex h-10 w-10 items-center justify-center before:absolute before:-inset-1 before:content-[""]';
 
 /**
- * The audiobook screen, modelled on the Voice audiobook player (Voice is open
- * source, MIT): colors taken from the cover, a big rounded cover you tap to play
- * and swipe to change chapter, book progress as one pill per chapter, a chapter
- * switcher, a wavy seek bar for the chapter with a "Back to" chip after a big
- * jump, a morphing play button, and a toolbar for sleep timer, speed and
- * bookmarks. The same screen runs on Android, iOS and desktop.
+ * The audiobook screen, laid out and animated after the Voice app (read from its source): colors
+ * from the cover, a soft drifting aurora behind, a cover that grows and glows while playing and
+ * flies away when the chapter changes, the title, the book as a pill per chapter, a chapter
+ * switcher, a wavy seek bar, Voice's play button and skip buttons, a floating toolbar, and an
+ * entrance in which each part rises into place in turn. The same screen runs on Android, iOS and
+ * desktop; every motion is off on e-ink, in lite mode and for people who ask for less motion.
  */
 export const AudiobookPlayerView: React.FC<AudiobookPlayerViewProps> = ({
   book,
@@ -98,9 +102,10 @@ export const AudiobookPlayerView: React.FC<AudiobookPlayerViewProps> = ({
   const { isDarkMode } = useThemeStore();
   const [sheet, setSheet] = useState<Sheet>(null);
   const [saved, setSaved] = useState(false);
-  const [coverFailed, setCoverFailed] = useState(false);
-  const swipe = useRef<number | null>(null);
-  const press = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showTotal, setShowTotal] = useState(false);
+  const [dragging, setDragging] = useState<number | null>(null);
+  const root = useRef<HTMLDivElement>(null);
+  const [room, setRoom] = useState({ width: 0, height: 0 });
 
   const { chapters, position, duration, speed, chapterIndex } = player;
   const chapter = player.chapter;
@@ -116,9 +121,23 @@ export const AudiobookPlayerView: React.FC<AudiobookPlayerViewProps> = ({
     const color = player.color ?? { hue: 215, saturation: 0.7 };
     return glass ? buildGlassPalette(color, isDarkMode) : buildPalette(color, isDarkMode);
   }, [player.color, isDarkMode, glass, eink]);
-  const active = glass
-    ? { background: 'var(--ab-primary)', color: 'var(--ab-on-primary)' }
-    : { background: 'var(--ab-on-toolbar)', color: 'var(--ab-toolbar)' };
+
+  useEffect(() => {
+    const el = root.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const measure = () => setRoom({ width: el.clientWidth, height: el.clientHeight });
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  // Voice puts the cover beside the controls on a wide, tall-enough screen, and squeezes the
+  // controls on a short one.
+  const sideBySide = room.width > room.height && room.width >= 600 && room.height >= 360;
+  const compact = room.height > 0 && room.height < COMPACT_HEIGHT;
+  const playSize = compact ? 80 : 104;
+
+  const entrance = useEntrance(animate);
 
   const multiChapter = chapters.length > 1;
   const chapterStart = chapter?.start ?? 0;
@@ -130,6 +149,8 @@ export const AudiobookPlayerView: React.FC<AudiobookPlayerViewProps> = ({
   const left = remainingAtSpeed(position, duration, speed);
   const pill = jumpPill(player.jump, player.now, chapters, chapterIndex);
   const speedChanged = Math.abs(speed - 1) > 0.01;
+  const elapsed = dragging ?? (multiChapter ? inChapter : position);
+  const total = multiChapter ? chapterLength : duration;
 
   const saveMoment = () => {
     void player.addBookmark();
@@ -137,21 +158,255 @@ export const AudiobookPlayerView: React.FC<AudiobookPlayerViewProps> = ({
     setTimeout(() => setSaved(false), 900);
   };
 
+  const topBar = (
+    <div className='flex items-center justify-between px-3 py-2'>
+      <button
+        type='button'
+        className={topButton}
+        data-surface=''
+        style={{ background: 'var(--ab-surface-highest)' }}
+        aria-label={_('Back')}
+        onClick={onBack}
+      >
+        <MdKeyboardArrowDown size={24} />
+      </button>
+      <div className='flex gap-2'>
+        {multiChapter && (
+          <button
+            type='button'
+            className={topButton}
+            data-surface=''
+            style={{ background: 'var(--ab-surface-highest)' }}
+            aria-label={_('Chapters')}
+            onClick={() => setSheet('chapters')}
+          >
+            <MdViewList size={24} />
+          </button>
+        )}
+        <button
+          type='button'
+          className={topButton}
+          data-surface=''
+          style={{ background: 'var(--ab-surface-highest)' }}
+          aria-label={_('More')}
+          onClick={() => setSheet('skip')}
+        >
+          <MdMoreVert size={24} />
+        </button>
+      </div>
+    </div>
+  );
+
+  const title = (
+    <div ref={entrance(0)} className='pt-1'>
+      <h1 className='font-book text-2xl font-semibold leading-tight'>{book.title}</h1>
+      {book.author && (
+        <p className='font-book mt-0.5 text-base' style={{ color: 'var(--ab-text-muted)' }}>
+          {book.author}
+        </p>
+      )}
+    </div>
+  );
+
+  const bookProgress = multiChapter && (
+    <div ref={entrance(1)} className={compact ? 'mt-2' : 'mt-3'}>
+      <BookProgressBar
+        segments={segments}
+        current={chapterIndex}
+        currentFraction={currentFraction}
+        animate={animate}
+      />
+      <div className='mt-1.5 flex justify-between gap-2 text-sm tabular-nums'>
+        <span className='shrink-0 font-semibold' style={{ color: 'var(--ab-primary)' }}>
+          {_('{{percent}}% of book', { percent })}
+        </span>
+        <span className='truncate' style={{ color: 'var(--ab-text-muted)' }}>
+          {speedChanged
+            ? _('{{time}} left at {{speed}}×', {
+                time: formatClock(left),
+                speed: Math.round(speed * 100) / 100,
+              })
+            : _('{{time}} left', { time: formatClock(left) })}
+        </span>
+      </div>
+    </div>
+  );
+
+  const switcher = multiChapter && (
+    <div ref={entrance(2)} className={compact ? 'mt-3' : 'mt-4'}>
+      <ChapterSwitcher
+        number={chapterIndex + 1}
+        count={chapters.length}
+        title={chapter?.title}
+        counterLabel={_('Chapter {{number}} of {{count}}', {
+          number: chapterIndex + 1,
+          count: chapters.length,
+        })}
+        previousLabel={_('Previous chapter')}
+        nextLabel={_('Next chapter')}
+        animate={animate}
+        onPrevious={player.previousChapter}
+        onNext={player.nextChapter}
+        onOpen={() => setSheet('chapters')}
+      />
+    </div>
+  );
+
+  const seek = (
+    <div ref={entrance(3)} className='mt-3'>
+      <WavySlider
+        glass={glass}
+        animate={animate}
+        ariaLabel={_('Seek')}
+        value={multiChapter ? inChapter : position}
+        max={total}
+        playing={player.playing}
+        formatBubble={formatClock}
+        onDrag={setDragging}
+        onCommit={(value) => player.seekTo(multiChapter ? chapterStart + value : value)}
+      />
+      <div className='relative flex min-h-8 items-center justify-between px-1 text-sm tabular-nums'>
+        <span
+          className='font-semibold'
+          style={{
+            color: dragging !== null ? 'var(--ab-primary)' : 'var(--ab-text-muted)',
+            transition: animate ? 'color 200ms' : undefined,
+          }}
+        >
+          {formatClock(elapsed)}
+        </span>
+        <span className='mx-2 flex min-w-0 flex-1 items-center justify-center'>
+          <JumpBackPill
+            animate={animate}
+            onClick={player.undoJump}
+            pill={
+              pill && {
+                id: pill.id,
+                visibleMs: pill.visibleMs,
+                text: pill.chapterNumber
+                  ? _('Back to Ch. {{chapter}} · {{time}}', {
+                      chapter: pill.chapterNumber,
+                      time: pill.time,
+                    })
+                  : _('Back to {{time}}', { time: pill.time }),
+              }
+            }
+          />
+          {!pill && !multiChapter && (
+            <span className='font-semibold' style={{ color: 'var(--ab-primary)' }}>
+              {_('{{percent}}% of book', { percent })}
+            </span>
+          )}
+        </span>
+        <button
+          type='button'
+          className='-me-1 px-1'
+          style={{ color: 'var(--ab-text-muted)' }}
+          onClick={() => setShowTotal((v) => !v)}
+        >
+          {showTotal ? formatClock(total) : formatRemainingInChapter(elapsed, total)}
+        </button>
+      </div>
+    </div>
+  );
+
+  const transport = (
+    <div className='mt-2 flex items-center justify-center gap-4' style={{ height: playSize }}>
+      <SkipButton
+        forward={false}
+        seconds={player.skipSeconds}
+        height={Math.round(playSize * 0.72)}
+        animate={animate}
+        label={_('Back {{count}} seconds', { count: player.skipSeconds })}
+        onClick={player.skipBack}
+      />
+      <PlayButton
+        glass={glass}
+        flat={!animate}
+        size={playSize}
+        playing={player.playing}
+        label={player.playing ? _('Pause') : _('Play')}
+        onClick={player.toggle}
+      />
+      <SkipButton
+        forward
+        seconds={player.skipSeconds}
+        height={Math.round(playSize * 0.72)}
+        animate={animate}
+        label={_('Forward {{count}} seconds', { count: player.skipSeconds })}
+        onClick={player.skipForward}
+      />
+    </div>
+  );
+
+  const toolbar = (
+    <div ref={entrance(4)} className={clsx('flex justify-center', compact ? 'mt-3' : 'mt-5')}>
+      <ActionToolbar>
+        <ToolbarItem
+          label={_('Sleep timer')}
+          active={!!player.sleep}
+          text={player.sleepLeft !== null ? formatClock(player.sleepLeft) : undefined}
+          animate={animate}
+          onClick={() => (player.sleep ? player.setSleep(null) : setSheet('sleep'))}
+        >
+          {player.sleep ? <MdBedtimeOff size={24} /> : <MdBedtime size={24} />}
+        </ToolbarItem>
+        <ToolbarItem
+          label={_('Playback speed')}
+          active={speedChanged}
+          text={speedChanged ? `${Math.round(speed * 100) / 100}×` : undefined}
+          animate={animate}
+          onClick={() => setSheet('speed')}
+        >
+          <MdSpeed size={24} />
+        </ToolbarItem>
+        <ToolbarItem
+          label={_('Bookmarks')}
+          animate={animate}
+          onClick={() => setSheet('bookmarks')}
+          onLongPress={saveMoment}
+        >
+          {saved ? <MdCollectionsBookmark size={24} /> : <MdBookmarkAdd size={24} />}
+        </ToolbarItem>
+      </ActionToolbar>
+    </div>
+  );
+
+  const cover = (
+    <PlaybackCover
+      src={player.coverUrl}
+      title={book.title}
+      label={_('Cover')}
+      playing={player.playing}
+      chapterIndex={chapterIndex}
+      swipeable={multiChapter}
+      animate={animate}
+      onNext={player.nextChapter}
+      onPrevious={player.previousChapter}
+      onToggle={player.toggle}
+    />
+  );
+
+  const error = player.error && (
+    <p role='alert' className='text-error mt-2 text-sm'>
+      {player.error}
+    </p>
+  );
+
   return (
     <div
-      className={clsx(
-        'audiobook-player full-height relative flex flex-col overflow-y-auto',
-        glass && 'ab-glass',
-        'pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]',
-      )}
+      ref={root}
+      className={clsx('audiobook-player full-height relative overflow-hidden', glass && 'ab-glass')}
       style={{
         ...(palette as React.CSSProperties),
-        background: 'linear-gradient(180deg, var(--ab-bg-top), var(--ab-bg-bottom))',
+        background: glass
+          ? 'linear-gradient(180deg, var(--ab-bg-top), var(--ab-bg-bottom))'
+          : 'var(--ab-surface)',
         color: 'var(--ab-text)',
       }}
     >
       {ownsAudio && <audio {...player.audioProps} />}
-      {glass && (
+      {glass ? (
         <>
           <style>{GLASS_CSS}</style>
           {player.coverBlur && (
@@ -165,293 +420,55 @@ export const AudiobookPlayerView: React.FC<AudiobookPlayerViewProps> = ({
             />
           )}
         </>
+      ) : (
+        <AuroraBackground playing={player.playing} animate={animate} />
       )}
 
-      <header className='flex items-center justify-between px-4 pt-3'>
-        <button
-          type='button'
-          className={tonalButton}
-          data-surface=''
-          style={{ background: 'var(--ab-container)' }}
-          aria-label={_('Back')}
-          onClick={onBack}
-        >
-          <MdExpandMore size={28} />
-        </button>
-        <div className='flex gap-2'>
-          <button
-            type='button'
-            className={tonalButton}
-            data-surface=''
-            style={{ background: 'var(--ab-container)' }}
-            aria-label={_('Chapters')}
-            onClick={() => setSheet('chapters')}
+      <div className='ab-scroll absolute inset-0 overflow-y-auto pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]'>
+        {sideBySide ? (
+          <div className='mx-auto flex h-full w-full items-stretch gap-8 px-6'>
+            <div className='flex min-w-0 flex-1 flex-col py-2'>
+              {topBar}
+              {cover}
+              {title}
+              {bookProgress}
+            </div>
+            <div
+              className='flex min-w-0 flex-[1.3] flex-col justify-center py-4'
+              style={{ maxWidth: MAX_CONTENT_WIDTH }}
+            >
+              {error}
+              {switcher}
+              {seek}
+              {transport}
+              {toolbar}
+            </div>
+          </div>
+        ) : (
+          <div
+            className='mx-auto flex h-full w-full flex-col'
+            style={{ maxWidth: MAX_CONTENT_WIDTH + 48 }}
           >
-            <MdViewList size={24} />
-          </button>
-          <button
-            type='button'
-            className={tonalButton}
-            data-surface=''
-            style={{ background: 'var(--ab-container)' }}
-            aria-label={_('More')}
-            onClick={() => setSheet('skip')}
-          >
-            <MdMoreVert size={24} />
-          </button>
-        </div>
-      </header>
-
-      <main className='mx-auto flex w-full max-w-md flex-1 flex-col gap-4 px-6 pb-5 pt-4'>
-        <div
-          className='ab-pop mx-auto flex aspect-square w-full max-w-[min(100%,42vh)] cursor-pointer select-none items-center justify-center overflow-hidden rounded-[28px] shadow-xl'
-          style={{ background: 'var(--ab-container)' }}
-          role='button'
-          tabIndex={0}
-          aria-label={_('Cover')}
-          onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && player.toggle()}
-          onPointerDown={(e) => {
-            swipe.current = e.clientX;
-          }}
-          onPointerUp={(e) => {
-            const start = swipe.current;
-            swipe.current = null;
-            if (start === null) return;
-            const dx = e.clientX - start;
-            if (!multiChapter || Math.abs(dx) < SWIPE_PX) player.toggle();
-            else if (dx < 0) player.nextChapter();
-            else player.previousChapter();
-          }}
-        >
-          {player.coverUrl && !coverFailed ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={player.coverUrl}
-              alt={book.title}
-              className='h-full w-full object-cover'
-              draggable={false}
-              onError={() => setCoverFailed(true)}
-            />
-          ) : (
-            <MdHeadphones size={96} style={{ opacity: 0.35 }} />
-          )}
-        </div>
-
-        <div>
-          <h1 className='font-serif text-[28px] leading-tight'>{book.title}</h1>
-          {book.author && (
-            <p className='mt-1 font-serif text-lg' style={{ color: 'var(--ab-text-muted)' }}>
-              {book.author}
-            </p>
-          )}
-        </div>
-
-        {player.error && (
-          <p role='alert' className='text-error text-sm'>
-            {player.error}
-          </p>
-        )}
-
-        {multiChapter && (
-          <div>
-            <BookProgressBar
-              segments={segments}
-              current={chapterIndex}
-              currentFraction={currentFraction}
-            />
-            <div className='mt-1.5 flex justify-between text-sm tabular-nums'>
-              <span className='font-medium' style={{ color: 'var(--ab-primary)' }}>
-                {_('{{percent}}% of book', { percent })}
-              </span>
-              <span style={{ color: 'var(--ab-text-muted)' }}>
-                {speedChanged
-                  ? _('{{time}} left at {{speed}}×', {
-                      time: formatClock(left),
-                      speed: Math.round(speed * 100) / 100,
-                    })
-                  : _('{{time}} left', { time: formatClock(left) })}
-              </span>
+            {topBar}
+            <div className={clsx('flex min-h-0 flex-1 flex-col px-6', compact ? 'pb-2' : 'pb-4')}>
+              <div className='flex min-h-[120px] flex-1 flex-col'>{cover}</div>
+              {title}
+              {error}
+              {bookProgress}
+              {switcher}
+              {seek}
+              {transport}
+              {toolbar}
             </div>
           </div>
         )}
-
-        {multiChapter && (
-          <div className='flex items-center gap-2'>
-            <button
-              type='button'
-              className={tonalButton}
-              data-surface=''
-              style={{ background: 'var(--ab-container)' }}
-              aria-label={_('Previous chapter')}
-              onClick={player.previousChapter}
-            >
-              <MdSkipPrevious size={26} />
-            </button>
-            <button
-              type='button'
-              className='flex min-h-14 min-w-0 flex-1 items-center gap-2 rounded-2xl px-4 py-2 text-start'
-              data-surface=''
-              style={{ background: 'var(--ab-container-high)' }}
-              onClick={() => setSheet('chapters')}
-            >
-              <span className='min-w-0 flex-1'>
-                <span className='block text-xs' style={{ color: 'var(--ab-primary)' }}>
-                  {_('Chapter {{number}} of {{count}}', {
-                    number: chapterIndex + 1,
-                    count: chapters.length,
-                  })}
-                </span>
-                <span className='block truncate font-serif text-lg'>{chapter?.title}</span>
-              </span>
-              <MdExpandMore size={22} style={{ color: 'var(--ab-text-muted)' }} />
-            </button>
-            <button
-              type='button'
-              className={tonalButton}
-              data-surface=''
-              style={{ background: 'var(--ab-container)' }}
-              aria-label={_('Next chapter')}
-              disabled={chapterIndex >= chapters.length - 1}
-              onClick={player.nextChapter}
-            >
-              <MdSkipNext size={26} />
-            </button>
-          </div>
-        )}
-
-        <div>
-          <WavySlider
-            glass={glass}
-            animate={animate}
-            ariaLabel={_('Seek')}
-            value={multiChapter ? inChapter : position}
-            max={multiChapter ? chapterLength : duration}
-            playing={player.playing}
-            onCommit={(value) => player.seekTo(multiChapter ? chapterStart + value : value)}
-          />
-          <div className='relative flex min-h-8 items-center justify-between text-sm tabular-nums'>
-            <span style={{ color: 'var(--ab-text-muted)' }}>
-              {formatClock(multiChapter ? inChapter : position)}
-            </span>
-            {pill ? (
-              <button
-                type='button'
-                className='mx-2 flex min-w-0 items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium'
-                style={{ background: 'var(--ab-pill)', color: 'var(--ab-on-pill)' }}
-                onClick={player.undoJump}
-              >
-                <MdUndo size={18} />
-                <span className='truncate'>
-                  {pill.chapterNumber
-                    ? _('Back to Ch. {{chapter}} · {{time}}', {
-                        chapter: pill.chapterNumber,
-                        time: pill.time,
-                      })
-                    : _('Back to {{time}}', { time: pill.time })}
-                </span>
-              </button>
-            ) : (
-              !multiChapter && (
-                <span style={{ color: 'var(--ab-primary)' }}>
-                  {_('{{percent}}% of book', { percent })}
-                </span>
-              )
-            )}
-            <span style={{ color: 'var(--ab-text-muted)' }}>
-              {multiChapter
-                ? formatRemainingInChapter(inChapter, chapterLength)
-                : formatRemainingInChapter(position, duration)}
-            </span>
-          </div>
-        </div>
-
-        <div className='flex items-center justify-center gap-5 py-1'>
-          <button
-            type='button'
-            className='flex h-[68px] w-[68px] items-center justify-center rounded-full ab-press'
-            data-surface=''
-            style={{ background: 'var(--ab-container)' }}
-            aria-label={_('Back {{count}} seconds', { count: player.skipSeconds })}
-            onClick={player.skipBack}
-          >
-            <MdReplay size={32} />
-          </button>
-          <PlayButton
-            glass={glass}
-            flat={!animate}
-            playing={player.playing}
-            label={player.playing ? _('Pause') : _('Play')}
-            onClick={player.toggle}
-          />
-          <button
-            type='button'
-            className='flex h-[68px] w-[68px] items-center justify-center rounded-full ab-press'
-            data-surface=''
-            style={{ background: 'var(--ab-container)' }}
-            aria-label={_('Forward {{count}} seconds', { count: player.skipSeconds })}
-            onClick={player.skipForward}
-          >
-            <MdReplay size={32} style={{ transform: 'scaleX(-1)' }} />
-          </button>
-        </div>
-
-        <div className='mt-auto flex justify-center pt-2'>
-          <div
-            className='flex items-center gap-1 rounded-full p-1.5'
-            data-surface=''
-            style={{ background: 'var(--ab-toolbar)', color: 'var(--ab-on-toolbar)' }}
-          >
-            <button
-              type='button'
-              className='flex h-12 min-w-12 items-center justify-center gap-1.5 rounded-full px-3'
-              style={player.sleep ? active : undefined}
-              aria-label={_('Sleep timer')}
-              onClick={() => (player.sleep ? player.setSleep(null) : setSheet('sleep'))}
-            >
-              {player.sleep ? <MdBedtimeOff size={24} /> : <MdBedtime size={24} />}
-              {player.sleepLeft !== null && (
-                <span className='tabular-nums'>{formatClock(player.sleepLeft)}</span>
-              )}
-            </button>
-            <button
-              type='button'
-              className='flex h-12 min-w-12 items-center justify-center gap-1.5 rounded-full px-3'
-              style={speedChanged ? active : undefined}
-              aria-label={_('Playback speed')}
-              onClick={() => setSheet('speed')}
-            >
-              <MdSpeed size={24} />
-              {speedChanged && (
-                <span className='tabular-nums'>{Math.round(speed * 100) / 100}×</span>
-              )}
-            </button>
-            <button
-              type='button'
-              className='relative flex h-12 min-w-12 items-center justify-center rounded-full px-3'
-              aria-label={_('Bookmarks')}
-              onClick={() => setSheet('bookmarks')}
-              onPointerDown={() => {
-                press.current = setTimeout(() => {
-                  press.current = null;
-                  saveMoment();
-                }, LONG_PRESS_MS);
-              }}
-              onPointerUp={() => press.current && clearTimeout(press.current)}
-              onPointerLeave={() => press.current && clearTimeout(press.current)}
-            >
-              <MdCollectionsBookmark
-                size={24}
-                className={clsx('transition-transform', saved && 'scale-125')}
-              />
-            </button>
-          </div>
-        </div>
-      </main>
+      </div>
 
       {sheet === 'chapters' && (
         <ChapterSheet
           chapters={chapters}
           current={chapterIndex}
+          playing={player.playing}
           onClose={() => setSheet(null)}
           onPick={(picked) => {
             player.seekTo(picked.start, 'chapter');

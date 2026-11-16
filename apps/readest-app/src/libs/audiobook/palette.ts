@@ -47,8 +47,26 @@ export const dominantColor = (rgba: Uint8ClampedArray): CoverColor => {
   };
 };
 
-const hsl = (h: number, s: number, l: number) =>
-  `hsl(${Math.round(h)}, ${Math.round(s * 100)}%, ${Math.round(l * 100)}%)`;
+const hsl = (h: number, s: number, l: number, alpha?: number) =>
+  alpha === undefined
+    ? `hsl(${Math.round(h)}, ${Math.round(s * 100)}%, ${Math.round(l * 100)}%)`
+    : `hsla(${Math.round(h)}, ${Math.round(s * 100)}%, ${Math.round(l * 100)}%, ${alpha})`;
+
+type Hsl = [number, number, number];
+
+/**
+ * The three soft colors of Voice's aurora (primary, tertiary and secondary container, at
+ * `strength` x 1, 0.8 and 0.85) and the same colors fully transparent. A gradient needs the
+ * clear end in the same hue, or older WebKit fades through gray.
+ */
+const aurora = (primary: Hsl, tertiary: Hsl, secondary: Hsl, strength: number) => ({
+  '--ab-aurora-1': hsl(...primary, strength),
+  '--ab-aurora-1-clear': hsl(...primary, 0),
+  '--ab-aurora-2': hsl(...tertiary, strength * 0.8),
+  '--ab-aurora-2-clear': hsl(...tertiary, 0),
+  '--ab-aurora-3': hsl(...secondary, strength * 0.85),
+  '--ab-aurora-3-clear': hsl(...secondary, 0),
+});
 
 /** The player's colors, as CSS variables, tinted from the cover like Voice's dynamic scheme. */
 export const buildPalette = ({ hue, saturation }: CoverColor, dark: boolean) => {
@@ -68,6 +86,18 @@ export const buildPalette = ({ hue, saturation }: CoverColor, dark: boolean) => 
         '--ab-on-toolbar': hsl(hue, 0.9, 0.1),
         '--ab-pill': hsl(hue + 50, 0.95, 0.65),
         '--ab-on-pill': hsl(hue + 50, 0.9, 0.12),
+        // The Material roles Voice uses that the rest of the player has no name for.
+        '--ab-primary-container': hsl(hue, s * 0.7, 0.28),
+        '--ab-on-primary-container': hsl(hue, 0.9, 0.9),
+        '--ab-surface': hsl(hue, s * 0.45, 0.11),
+        '--ab-surface-high': hsl(hue, s * 0.5, 0.19),
+        '--ab-surface-highest': hsl(hue, s * 0.45, 0.24),
+        '--ab-tertiary-container': hsl(hue + 50, s * 0.6, 0.3),
+        '--ab-on-tertiary-container': hsl(hue + 50, 0.9, 0.9),
+        '--ab-glow': hsl(hue, 1, 0.6, 0.45),
+        '--ab-secondary-container': hsl(hue, s * 0.4, 0.3),
+        '--ab-on-secondary-container': hsl(hue, 0.5, 0.9),
+        ...aurora([hue, s * 0.7, 0.28], [hue + 50, s * 0.6, 0.3], [hue - 30, s * 0.4, 0.3], 0.35),
       }
     : {
         '--ab-bg-top': hsl(hue, 1, 0.78),
@@ -83,6 +113,17 @@ export const buildPalette = ({ hue, saturation }: CoverColor, dark: boolean) => 
         '--ab-on-toolbar': hsl(hue, 0.9, 0.1),
         '--ab-pill': hsl(hue + 50, 0.95, 0.65),
         '--ab-on-pill': hsl(hue + 50, 0.9, 0.12),
+        '--ab-primary-container': hsl(hue, 0.95, 0.76),
+        '--ab-on-primary-container': hsl(hue, 0.9, 0.1),
+        '--ab-surface': hsl(hue, 0.7, 0.94),
+        '--ab-surface-high': hsl(hue, 0.8, 0.86),
+        '--ab-surface-highest': hsl(hue, 0.75, 0.82),
+        '--ab-tertiary-container': hsl(hue + 50, 0.9, 0.8),
+        '--ab-on-tertiary-container': hsl(hue + 50, 0.9, 0.12),
+        '--ab-glow': hsl(hue, 1, 0.4, 0.45),
+        '--ab-secondary-container': hsl(hue, 0.6, 0.84),
+        '--ab-on-secondary-container': hsl(hue, 0.7, 0.12),
+        ...aurora([hue, 0.95, 0.76], [hue + 50, 0.9, 0.8], [hue - 30, 0.6, 0.84], 0.85),
       };
 };
 
@@ -126,6 +167,16 @@ export const buildGlassPalette = ({ hue, saturation }: CoverColor, dark: boolean
     '--ab-on-toolbar': 'rgba(255, 255, 255, 0.96)',
     '--ab-pill': 'rgba(255, 255, 255, 0.9)',
     '--ab-on-pill': hsl(hue, 0.6, 0.14),
+    '--ab-primary-container': 'rgba(255, 255, 255, 0.34)',
+    '--ab-on-primary-container': 'rgba(255, 255, 255, 0.98)',
+    '--ab-surface': 'rgba(20, 20, 30, 0.55)',
+    '--ab-surface-high': 'rgba(255, 255, 255, 0.2)',
+    '--ab-surface-highest': 'rgba(255, 255, 255, 0.26)',
+    '--ab-tertiary-container': 'rgba(255, 255, 255, 0.3)',
+    '--ab-on-tertiary-container': 'rgba(255, 255, 255, 0.96)',
+    '--ab-glow': 'rgba(0, 0, 0, 0.35)',
+    '--ab-secondary-container': 'rgba(255, 255, 255, 0.2)',
+    '--ab-on-secondary-container': 'rgba(255, 255, 255, 0.96)',
   };
 };
 
@@ -144,6 +195,16 @@ export const buildEinkPalette = () => ({
   '--ab-on-toolbar': '#000000',
   '--ab-pill': '#000000',
   '--ab-on-pill': '#ffffff',
+  '--ab-primary-container': '#000000',
+  '--ab-on-primary-container': '#ffffff',
+  '--ab-surface': '#ffffff',
+  '--ab-surface-high': '#ffffff',
+  '--ab-surface-highest': '#ffffff',
+  '--ab-tertiary-container': '#000000',
+  '--ab-on-tertiary-container': '#ffffff',
+  '--ab-glow': 'transparent',
+  '--ab-secondary-container': '#ffffff',
+  '--ab-on-secondary-container': '#000000',
 });
 
 /**
