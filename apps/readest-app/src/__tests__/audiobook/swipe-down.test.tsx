@@ -124,7 +124,14 @@ describe('swipe down to close the player', () => {
     return (
       <div ref={root} data-testid='player'>
         <button type='button'>Back</button>
-        <div role='slider' />
+        <div
+          role='slider'
+          tabIndex={0}
+          aria-label='Seek'
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={0}
+        />
       </div>
     );
   };
