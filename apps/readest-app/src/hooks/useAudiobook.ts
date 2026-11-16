@@ -477,6 +477,9 @@ export const useAudiobook = (book: Book) => {
       setNow(at);
     }
     moveTo(to);
+    // A jump made while paused (a chapter from the list, a swipe on the cover) is a place too:
+    // save it now, or the library and the next device keep showing the old one until playback.
+    void persist(kind !== 'skip');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -613,8 +616,11 @@ export const useAudiobook = (book: Book) => {
   }, [jump]);
 
   // Lock screen, notification and headset controls.
+  // One session for the book, not one per file: a book of several files gets a new `src` at every
+  // chapter, and a session rebuilt each time dropped the notification's place and cover.
+  const hasSource = !!src;
   useEffect(() => {
-    if (!src) return;
+    if (!hasSource) return;
     const session = createAudiobookSession(
       {
         play,
@@ -633,12 +639,20 @@ export const useAudiobook = (book: Book) => {
       },
     );
     sessionRef.current = session;
+    // A new session knows nothing yet: tell it where the book is.
+    const audio = audioRef.current;
+    session.update({
+      playing: !!audio && !audio.paused,
+      position: latest.current.position,
+      duration: latest.current.duration,
+      speed: audio?.playbackRate ?? 1,
+    });
     return () => {
       session.dispose();
       sessionRef.current = null;
     };
   }, [
-    src,
+    hasSource,
     book.hash,
     book.title,
     book.author,

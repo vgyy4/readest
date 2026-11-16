@@ -331,6 +331,9 @@ class MediaPlaybackService : MediaBrowserServiceCompat() {
             mediaSession?.isActive = true
             notifyChildrenChanged(MEDIA_ROOT_ID)
         }
+        // The title and cover may have been set before this service existed (they only reach the
+        // statics then): give them to the session, so the system player shows them too.
+        mediaSession?.setMetadata(buildMediaMetadata())
         // Always post the notification: activation arrives through
         // startForegroundService, which requires startForeground promptly.
         showNotification(PlaybackStateCompat.STATE_PLAYING)

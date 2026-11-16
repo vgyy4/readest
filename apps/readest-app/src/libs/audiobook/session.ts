@@ -57,34 +57,37 @@ export const createAudiobookSession = (actions: TransportActions, info: SessionI
     session.setActionHandler('seekbackward', () => actions.seekBy(-info.skipSeconds));
     // The native seek contract is milliseconds.
     session.setActionHandler('seekto', (ms: number) => actions.seekTo(ms / 1000));
-    void session.setActive({
-      active: true,
-      notificationTitle: info.title,
-      notificationText: info.author,
-      foregroundServiceTitle: info.title,
-      foregroundServiceText: info.author,
-      bookHash: info.bookHash,
-      bookTitle: info.title,
-      bookAuthor: info.author,
-    });
-    void session.updateMetadata({
-      title: info.title,
-      artist: info.author,
-      album: info.title,
-      artwork: info.artwork,
-    });
+    // The metadata (and the cover) goes after the session is active: sent before, it only reached
+    // the service's leftovers and the system player never showed it.
+    const activated = Promise.resolve(
+      session.setActive({
+        active: true,
+        notificationTitle: info.title,
+        notificationText: info.author,
+        foregroundServiceTitle: info.title,
+        foregroundServiceText: info.author,
+        bookHash: info.bookHash,
+        bookTitle: info.title,
+        bookAuthor: info.author,
+      }),
+    ).catch(() => {});
+    const sendMetadata = (artwork?: string) =>
+      activated.then(() =>
+        session.updateMetadata({
+          title: info.title,
+          artist: info.author,
+          album: info.title,
+          artwork,
+        }),
+      );
+    void sendMetadata(info.artwork);
     // What the phone was last told. It works out the position itself from that, so it is only
     // told again when something changes (play, pause, a new length, a jump) and, now and then, so
     // it cannot drift. Every 250 ms (the player's own clock) kept the notification busy.
     let last: { playing: boolean; position: number; duration: number; at: number } | null = null;
     return {
       setArtwork(artwork: string) {
-        void session.updateMetadata({
-          title: info.title,
-          artist: info.author,
-          album: info.title,
-          artwork,
-        });
+        void sendMetadata(artwork);
       },
       update(state: SessionState) {
         playing = state.playing;
@@ -98,7 +101,9 @@ export const createAudiobookSession = (actions: TransportActions, info: SessionI
           }
         }
         last = { playing: state.playing, position, duration, at: now };
-        void session.updatePlaybackState({ playing: state.playing, position, duration });
+        void activated.then(() =>
+          session.updatePlaybackState({ playing: state.playing, position, duration }),
+        );
       },
       dispose() {
         void session.setActive({ active: false });

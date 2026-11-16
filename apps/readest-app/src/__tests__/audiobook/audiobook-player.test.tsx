@@ -238,6 +238,30 @@ describe('AudiobookPlayer', () => {
     expect(screen.queryByText(/^Back to/)).toBeNull();
   });
 
+  it('tells the phone where the book is as soon as its session starts, and keeps one session', async () => {
+    mocks.createSession.mockClear();
+    render(<AudiobookPlayer book={book} onBack={() => {}} />);
+    await loaded();
+    expect(mocks.createSession).toHaveBeenCalledTimes(1);
+    expect(mocks.session.update).toHaveBeenCalledWith(
+      expect.objectContaining({ playing: false, duration: 200 }),
+    );
+  });
+
+  it('saves the place at once when a chapter is chosen while paused', async () => {
+    render(<AudiobookPlayer book={book} onBack={() => {}} />);
+    await loaded();
+    mocks.appService.saveBookConfig.mockClear();
+    mocks.updateBook.mockClear();
+    fireEvent.click(screen.getByLabelText('Next chapter'));
+    await waitFor(() => expect(mocks.appService.saveBookConfig).toHaveBeenCalled());
+    const [, config] = mocks.appService.saveBookConfig.mock.calls.at(-1)!;
+    expect(config).toMatchObject({ location: 'audio:100', progress: [100, 200] });
+    // ...and the library shows it (the percentage on the book's card).
+    await waitFor(() => expect(mocks.updateBook).toHaveBeenCalled());
+    expect((mocks.updateBook.mock.calls.at(-1)![1] as Book).progress).toEqual([100, 200]);
+  });
+
   it('saves moments as bookmarks and jumps back to them', async () => {
     render(<AudiobookPlayer book={book} onBack={() => {}} />);
     await loaded();

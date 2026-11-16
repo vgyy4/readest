@@ -19,6 +19,11 @@ vi.mock('@/libs/mediaSession', () => ({
   getMediaSession: () => mocks.current,
 }));
 
+// The session reports to the phone once its foreground service is active, which is a promise.
+const settle = async () => {
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+};
+
 const actions = () => ({
   play: vi.fn(),
   pause: vi.fn(),
@@ -64,6 +69,7 @@ describe('createAudiobookSession (native) updates', () => {
       vi.advanceTimersByTime(250);
       session.update(playing(10 + i * 0.25));
     }
+    await settle();
     expect(native.updatePlaybackState).toHaveBeenCalledTimes(1);
   });
 
@@ -75,6 +81,7 @@ describe('createAudiobookSession (native) updates', () => {
     session.update(playing(10.25, { playing: false }));
     vi.advanceTimersByTime(250);
     session.update(playing(10.25, { playing: false, duration: 700 }));
+    await settle();
     expect(native.updatePlaybackState).toHaveBeenCalledTimes(3);
   });
 
@@ -84,7 +91,9 @@ describe('createAudiobookSession (native) updates', () => {
     session.update(playing(10));
     vi.advanceTimersByTime(250);
     session.update(playing(300));
+    await settle();
     expect(native.updatePlaybackState).toHaveBeenCalledTimes(2);
+    await settle();
     expect(native.updatePlaybackState).toHaveBeenLastCalledWith({
       playing: true,
       position: 300000,
@@ -98,6 +107,7 @@ describe('createAudiobookSession (native) updates', () => {
     session.update(playing(10));
     vi.advanceTimersByTime(10_500);
     session.update(playing(20.5));
+    await settle();
     expect(native.updatePlaybackState).toHaveBeenCalledTimes(2);
   });
 
@@ -109,6 +119,7 @@ describe('createAudiobookSession (native) updates', () => {
       vi.advanceTimersByTime(250);
       session.update(playing(10, { playing: false }));
     }
+    await settle();
     expect(native.updatePlaybackState).toHaveBeenCalledTimes(1);
   });
 });
@@ -125,6 +136,7 @@ describe('createAudiobookSession artwork', () => {
     const session = createAudiobookSession(actions(), { ...info, artwork: undefined });
     native.updateMetadata.mockClear();
     session.setArtwork('data:image/jpeg;base64,AAAA');
+    await settle();
     expect(native.updateMetadata).toHaveBeenCalledWith({
       title: 'Dune',
       artist: 'Frank Herbert',
@@ -155,6 +167,7 @@ describe('createAudiobookSession (native)', () => {
     expect(native.setActive).toHaveBeenCalledWith(
       expect.objectContaining({ active: true, bookHash: 'abc' }),
     );
+    await settle();
     expect(native.updateMetadata).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'Dune', artist: 'Frank Herbert', artwork: 'cover.png' }),
     );
@@ -177,6 +190,7 @@ describe('createAudiobookSession (native)', () => {
     const a = actions();
     const session = createAudiobookSession(a, info);
     session.update({ playing: true, position: 12.5, duration: 600, speed: 1 });
+    await settle();
     expect(native.updatePlaybackState).toHaveBeenCalledWith({
       playing: true,
       position: 12500,
@@ -258,5 +272,32 @@ describe('importing an audio file', () => {
     expect(book.metadata.title).toBe('Some Story');
     expect(book.sections).toEqual([]);
     expect(await book.getCover()).toBeNull();
+  });
+});
+
+describe('createAudiobookSession (native) start-up order', () => {
+  it('sends the title, the cover and the place only once the session is active', async () => {
+    const native = new mocks.FakeNativeSession();
+    mocks.current = native;
+    let activate: () => void = () => {};
+    native.setActive.mockReturnValue(new Promise<void>((resolve) => (activate = resolve)));
+    const { createAudiobookSession } = await import('@/libs/audiobook/session');
+    const session = createAudiobookSession(actions(), info);
+    session.setArtwork('data:image/jpeg;base64,AAAA');
+    session.update({ playing: false, position: 5, duration: 600, speed: 1 });
+    await settle();
+    // The foreground service does not exist yet: anything sent now would be lost.
+    expect(native.updateMetadata).not.toHaveBeenCalled();
+    expect(native.updatePlaybackState).not.toHaveBeenCalled();
+    activate();
+    await settle();
+    expect(native.updateMetadata).toHaveBeenCalledWith(
+      expect.objectContaining({ artwork: 'data:image/jpeg;base64,AAAA' }),
+    );
+    expect(native.updatePlaybackState).toHaveBeenCalledWith({
+      playing: false,
+      position: 5000,
+      duration: 600000,
+    });
   });
 });
