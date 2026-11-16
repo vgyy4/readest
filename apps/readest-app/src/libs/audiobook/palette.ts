@@ -167,3 +167,35 @@ export const blurredCoverUrl = async (url: string): Promise<string | null> => {
     return null;
   }
 };
+
+/** `width` x `height` scaled down (never up) so the longer side is at most `max`. */
+export const fitCoverSize = (width: number, height: number, max: number) => {
+  const scale = Math.min(1, max / Math.max(width, height, 1));
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  };
+};
+
+/**
+ * The cover as a small data URL. The phone's notification and lock screen load their picture
+ * from a data URL or an http address; the app's own file and blob addresses mean nothing to them.
+ */
+export const coverDataUrl = async (url: string, max = 512): Promise<string | null> => {
+  try {
+    const image = new Image();
+    if (/^https?:/.test(url)) image.crossOrigin = 'anonymous';
+    image.src = url;
+    await image.decode();
+    const { width, height } = fitCoverSize(image.naturalWidth, image.naturalHeight, max);
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    if (!context) return null;
+    context.drawImage(image, 0, 0, width, height);
+    return canvas.toDataURL('image/jpeg', 0.85);
+  } catch {
+    return null;
+  }
+};

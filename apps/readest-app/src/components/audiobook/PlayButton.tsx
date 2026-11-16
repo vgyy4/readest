@@ -30,8 +30,8 @@ const PlayButton: React.FC<PlayButtonProps> = ({
     data-surface={glass ? '' : undefined}
     className={
       glass || flat
-        ? 'flex h-24 w-24 items-center justify-center rounded-full transition-transform active:scale-95'
-        : 'flex h-24 w-24 items-center justify-center transition-[clip-path,background-color] duration-300 ease-out active:scale-95'
+        ? 'flex h-24 w-24 items-center justify-center rounded-full ab-press'
+        : 'ab-press flex h-24 w-24 items-center justify-center transition-[clip-path,background-color,transform] duration-300 ease-out'
     }
     style={
       flat

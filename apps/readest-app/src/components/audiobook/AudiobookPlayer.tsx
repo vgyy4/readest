@@ -40,6 +40,18 @@ import {
   SpeedSheet,
 } from './AudiobookSheets';
 
+export type AudiobookPlayerState = ReturnType<typeof useAudiobook>;
+
+interface AudiobookPlayerViewProps {
+  book: Book;
+  player: AudiobookPlayerState;
+  onBack: () => void;
+  /** The view renders the <audio> element itself; the app-wide host renders it once, outside. */
+  ownsAudio?: boolean;
+  /** The player is on screen. Off while it slides away, so nothing animates unseen. */
+  onScreen?: boolean;
+}
+
 interface AudiobookPlayerProps {
   book: Book;
   onBack: () => void;
@@ -64,7 +76,8 @@ const GLASS_CSS = `
 const SWIPE_PX = 60;
 const LONG_PRESS_MS = 500;
 
-const tonalButton = 'flex h-12 w-12 items-center justify-center rounded-full disabled:opacity-30';
+const tonalButton =
+  'ab-press flex h-12 w-12 items-center justify-center rounded-full disabled:opacity-30';
 
 /**
  * The audiobook screen, modelled on the Voice audiobook player (Voice is open
@@ -74,10 +87,15 @@ const tonalButton = 'flex h-12 w-12 items-center justify-center rounded-full dis
  * jump, a morphing play button, and a toolbar for sleep timer, speed and
  * bookmarks. The same screen runs on Android, iOS and desktop.
  */
-const AudiobookPlayer: React.FC<AudiobookPlayerProps> = ({ book, onBack }) => {
+export const AudiobookPlayerView: React.FC<AudiobookPlayerViewProps> = ({
+  book,
+  player,
+  onBack,
+  ownsAudio = false,
+  onScreen = true,
+}) => {
   const _ = useTranslation();
   const { isDarkMode } = useThemeStore();
-  const player = useAudiobook(book);
   const [sheet, setSheet] = useState<Sheet>(null);
   const [saved, setSaved] = useState(false);
   const [coverFailed, setCoverFailed] = useState(false);
@@ -92,7 +110,7 @@ const AudiobookPlayer: React.FC<AudiobookPlayerProps> = ({ book, onBack }) => {
   const lite = useHtmlAttribute('data-perf') === 'low';
   // E-ink has no gradients, tints or glass: black on white with borders.
   const glass = uiStyle === 'glass' && !eink;
-  const animate = !eink && !lite;
+  const animate = !eink && !lite && onScreen;
   const palette = useMemo(() => {
     if (eink) return buildEinkPalette();
     const color = player.color ?? { hue: 215, saturation: 0.7 };
@@ -132,7 +150,7 @@ const AudiobookPlayer: React.FC<AudiobookPlayerProps> = ({ book, onBack }) => {
         color: 'var(--ab-text)',
       }}
     >
-      <audio {...player.audioProps} />
+      {ownsAudio && <audio {...player.audioProps} />}
       {glass && (
         <>
           <style>{GLASS_CSS}</style>
@@ -186,7 +204,7 @@ const AudiobookPlayer: React.FC<AudiobookPlayerProps> = ({ book, onBack }) => {
 
       <main className='mx-auto flex w-full max-w-md flex-1 flex-col gap-4 px-6 pb-5 pt-4'>
         <div
-          className='mx-auto flex aspect-square w-full max-w-[min(100%,42vh)] cursor-pointer select-none items-center justify-center overflow-hidden rounded-[28px] shadow-xl'
+          className='ab-pop mx-auto flex aspect-square w-full max-w-[min(100%,42vh)] cursor-pointer select-none items-center justify-center overflow-hidden rounded-[28px] shadow-xl'
           style={{ background: 'var(--ab-container)' }}
           role='button'
           tabIndex={0}
@@ -350,7 +368,7 @@ const AudiobookPlayer: React.FC<AudiobookPlayerProps> = ({ book, onBack }) => {
         <div className='flex items-center justify-center gap-5 py-1'>
           <button
             type='button'
-            className='flex h-[68px] w-[68px] items-center justify-center rounded-full transition-transform active:scale-90'
+            className='flex h-[68px] w-[68px] items-center justify-center rounded-full ab-press'
             data-surface=''
             style={{ background: 'var(--ab-container)' }}
             aria-label={_('Back {{count}} seconds', { count: player.skipSeconds })}
@@ -367,7 +385,7 @@ const AudiobookPlayer: React.FC<AudiobookPlayerProps> = ({ book, onBack }) => {
           />
           <button
             type='button'
-            className='flex h-[68px] w-[68px] items-center justify-center rounded-full transition-transform active:scale-90'
+            className='flex h-[68px] w-[68px] items-center justify-center rounded-full ab-press'
             data-surface=''
             style={{ background: 'var(--ab-container)' }}
             aria-label={_('Forward {{count}} seconds', { count: player.skipSeconds })}
@@ -477,6 +495,12 @@ const AudiobookPlayer: React.FC<AudiobookPlayerProps> = ({ book, onBack }) => {
       )}
     </div>
   );
+};
+
+/** The player on its own, with its own audio (outside the app-wide host: tests, the pages router). */
+const AudiobookPlayer: React.FC<AudiobookPlayerProps> = ({ book, onBack }) => {
+  const player = useAudiobook(book);
+  return <AudiobookPlayerView book={book} player={player} onBack={onBack} ownsAudio />;
 };
 
 export default AudiobookPlayer;

@@ -34,6 +34,8 @@ import { initDayjs } from '@/utils/time';
 import AudiobookPlayer from '@/components/audiobook/AudiobookPlayer';
 import { isAudioFormat } from '@/libs/audiobook/formats';
 import { useLibraryStore } from '@/store/libraryStore';
+import { useAudiobookStore } from '@/store/audiobookStore';
+import { useAudiobookHandoff } from '@/hooks/useAudiobookHandoff';
 import { usePathname, useSearchParams } from 'next/navigation';
 
 /*
@@ -100,6 +102,8 @@ const Reader: React.FC<{ ids?: string }> = ({ ids }) => {
   }, []);
 
   const handleKeyDown = (event: CustomEvent) => {
+    // The audiobook player, when it is open, takes Back to close itself.
+    if (event.detail.keyName === 'Back' && useAudiobookStore.getState().expanded) return false;
     if (event.detail.keyName === 'Back') {
       const { hoveredBookKey, setHoveredBookKey } = useReaderStore.getState();
       if (hoveredBookKey) {
@@ -174,6 +178,22 @@ const Reader: React.FC<{ ids?: string }> = ({ ids }) => {
   useEffect(() => {
     if (!isAudiobook) void loadReaderContent();
   }, [isAudiobook]);
+
+  // The app-wide player (AudiobookHost) plays audiobooks, so the book carries on when this page is
+  // left. This page just hands the book over and goes back when the player is closed.
+  const handedToPlayer = useAudiobookHandoff(
+    isAudiobook ? audiobook?.hash : undefined,
+    libraryLoaded,
+    () => router.back(),
+  );
+
+  if (libraryLoaded && isAudiobook && audiobook && handedToPlayer) {
+    return (
+      <div className='reader-page bg-base-100 text-base-content full-height select-none overflow-hidden'>
+        <Toast />
+      </div>
+    );
+  }
 
   if (libraryLoaded && isAudiobook && audiobook) {
     return (

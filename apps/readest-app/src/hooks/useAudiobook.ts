@@ -4,7 +4,7 @@ import { Book, BookNote } from '@/types/book';
 import { useEnv } from '@/context/EnvContext';
 import { useLibraryStore } from '@/store/libraryStore';
 import { useSettingsStore } from '@/store/settingsStore';
-import { getLocalBookFilename, INIT_BOOK_CONFIG } from '@/utils/book';
+import { getCoverFilename, getLocalBookFilename, INIT_BOOK_CONFIG } from '@/utils/book';
 import type { BaseDir } from '@/types/system';
 import { withReadingStatus } from '@/app/library/utils/libraryUtils';
 import { readAudioInfo, writeAudioInfo } from '@/libs/audiobook/infoCache';
@@ -17,7 +17,12 @@ import {
   type PlaybackSource,
   playbackPlan,
 } from '@/libs/audiobook/source';
-import { blurredCoverUrl, CoverColor, sampleCoverColor } from '@/libs/audiobook/palette';
+import {
+  blurredCoverUrl,
+  CoverColor,
+  coverDataUrl,
+  sampleCoverColor,
+} from '@/libs/audiobook/palette';
 import { audioFormatOf } from '@/libs/audiobook/formats';
 import {
   audioPartsOf,
@@ -149,6 +154,8 @@ export const useAudiobook = (book: Book) => {
   } | null>(null);
   const blobUrlRef = useRef('');
   const sessionRef = useRef<ReturnType<typeof createAudiobookSession> | null>(null);
+  // The cover as a data URL for the phone's notification, which cannot load the app's own addresses.
+  const artworkRef = useRef<string | undefined>(undefined);
 
   // Saving reads these at the moment it runs. It must not be rebuilt when they change: every
   // save replaces the book in the library, and a save function that changes with the book
@@ -404,6 +411,36 @@ export const useAudiobook = (book: Book) => {
     };
   }, [coverUrl]);
 
+  // Hand the phone's notification and lock screen the cover, as a picture it can load. The cover
+  // file is read from storage, so the picture is the app's own and can be redrawn small.
+  useEffect(() => {
+    if (!coverUrl) return;
+    let cancelled = false;
+    let objectUrl = '';
+    void (async () => {
+      let source = coverUrl;
+      try {
+        const file = await appService?.openFile(getCoverFilename(book), 'Books');
+        if (file) {
+          objectUrl = URL.createObjectURL(file);
+          source = objectUrl;
+        }
+      } catch {
+        // No stored cover: use the address the player already shows.
+      }
+      const data = await coverDataUrl(source);
+      if (cancelled || !data) return;
+      artworkRef.current = data;
+      sessionRef.current?.setArtwork(data);
+    })().finally(() => {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coverUrl, appService]);
+
   /** Go to `to` seconds into the book: into another file if that is where it falls. */
   const moveTo = useCallback((to: number) => {
     const audio = audioRef.current;
@@ -591,7 +628,7 @@ export const useAudiobook = (book: Book) => {
         bookHash: book.hash,
         title: book.title,
         author: book.author,
-        artwork: coverUrl || undefined,
+        artwork: artworkRef.current,
         skipSeconds,
       },
     );
@@ -605,7 +642,6 @@ export const useAudiobook = (book: Book) => {
     book.hash,
     book.title,
     book.author,
-    coverUrl,
     skipSeconds,
     play,
     pause,

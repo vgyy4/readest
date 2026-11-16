@@ -38,7 +38,13 @@ const RESEND_EVERY_MS = 10_000;
  */
 export const createAudiobookSession = (actions: TransportActions, info: SessionInfo) => {
   const session = getMediaSession();
-  if (!session) return { update: (_state: SessionState) => {}, dispose: () => {} };
+  if (!session) {
+    return {
+      update: (_state: SessionState) => {},
+      setArtwork: (_url: string) => {},
+      dispose: () => {},
+    };
+  }
   let playing = false;
 
   if (session instanceof TauriMediaSession) {
@@ -72,6 +78,14 @@ export const createAudiobookSession = (actions: TransportActions, info: SessionI
     // it cannot drift. Every 250 ms (the player's own clock) kept the notification busy.
     let last: { playing: boolean; position: number; duration: number; at: number } | null = null;
     return {
+      setArtwork(artwork: string) {
+        void session.updateMetadata({
+          title: info.title,
+          artist: info.author,
+          album: info.title,
+          artwork,
+        });
+      },
       update(state: SessionState) {
         playing = state.playing;
         const now = Date.now();
@@ -131,6 +145,14 @@ export const createAudiobookSession = (actions: TransportActions, info: SessionI
     artwork: info.artwork ? [{ src: info.artwork }] : [],
   });
   return {
+    setArtwork(artwork: string) {
+      web.metadata = new MediaMetadata({
+        title: info.title,
+        artist: info.author,
+        album: info.title,
+        artwork: [{ src: artwork }],
+      });
+    },
     update(state: SessionState) {
       playing = state.playing;
       web.playbackState = state.playing ? 'playing' : 'paused';

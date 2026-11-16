@@ -91,32 +91,39 @@ describe('orderFolderFiles', () => {
     expect(naturalCompare('a2', 'a10')).toBeLessThan(0);
   });
 
-  it('follows track numbers when every file has one, whatever the names say', () => {
+  it('ignores track numbers, as Voice does: tags are often wrong (numbered alphabetically by title)', () => {
     const order = orderFolderFiles([
-      { path: '/b/Appendix.mp3', track: 3 },
-      { path: '/b/Prologue.mp3', track: 1 },
+      { path: '/b/Synopsis.mp3', track: 28 },
+      { path: '/b/Appendix.mp3', track: 1 },
       { path: '/b/Book V.mp3', track: 2 },
     ]);
-    expect(order.map((x) => x.track)).toEqual([1, 2, 3]);
+    expect(order.map((x) => x.path.split('/').pop())).toEqual([
+      'Appendix.mp3',
+      'Book V.mp3',
+      'Synopsis.mp3',
+    ]);
   });
 
-  it('puts disc 2 after disc 1', () => {
+  it('follows file names, so numbering the files (01 - Synopsis) fixes an order', () => {
     const order = orderFolderFiles([
-      { path: '/b/a.mp3', disc: 2, track: 1 },
-      { path: '/b/b.mp3', disc: 1, track: 2 },
-      { path: '/b/c.mp3', disc: 1, track: 1 },
+      f('/b/03 - Appendix.mp3'),
+      f('/b/01 - Synopsis.mp3'),
+      f('/b/02 - Book V.mp3'),
     ]);
-    expect(order.map((x) => x.path)).toEqual(['/b/c.mp3', '/b/b.mp3', '/b/a.mp3']);
+    expect(order.map((x) => x.path.split('/').pop())).toEqual([
+      '01 - Synopsis.mp3',
+      '02 - Book V.mp3',
+      '03 - Appendix.mp3',
+    ]);
   });
 
-  it('falls back to file names when track numbers are missing or repeated', () => {
-    const missing = orderFolderFiles([{ path: '/b/b.mp3', track: 1 }, { path: '/b/a.mp3' }]);
-    expect(missing.map((x) => x.path)).toEqual(['/b/a.mp3', '/b/b.mp3']);
-    const repeated = orderFolderFiles([
-      { path: '/b/b.mp3', track: 1 },
-      { path: '/b/a.mp3', track: 1 },
+  it('puts folders before the files beside them, as Voice does', () => {
+    const order = orderFolderFiles([f('/b/Intro.mp3'), f('/b/Part 2/1.mp3'), f('/b/Part 1/1.mp3')]);
+    expect(order.map((x) => x.path)).toEqual([
+      '/b/Part 1/1.mp3',
+      '/b/Part 2/1.mp3',
+      '/b/Intro.mp3',
     ]);
-    expect(repeated.map((x) => x.path)).toEqual(['/b/a.mp3', '/b/b.mp3']);
   });
 
   it('sorts subfolders (CD1, CD2) in order', () => {

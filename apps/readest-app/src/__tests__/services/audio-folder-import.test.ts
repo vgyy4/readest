@@ -76,14 +76,14 @@ beforeEach(() => {
       trackTitle: f.replace('.mp3', ''),
       author: 'J.R.R. Tolkien',
       duration: 100 + i,
-      // Prologue is track 1, then chapters 1 and 2: names alone would put Prologue last.
+      // Tags are not used for the order (Voice ignores them), only the names.
       track: f === 'Prologue.mp3' ? 1 : f.endsWith('01.mp3') ? 2 : 3,
     });
   }
 });
 
 describe('importAudioFolder', () => {
-  it('makes one book from the folder, in track order, with a chapter per file', async () => {
+  it('makes one book from the folder, in file-name order, with a chapter per file', async () => {
     const fs = makeFs(Object.fromEntries(paths.map((p) => [p, `audio:${p}`])));
     const { book, books, saveBookConfig } = await run(fs, paths);
 
@@ -93,15 +93,15 @@ describe('importAudioFolder', () => {
     expect(book!.author).toBe('J.R.R. Tolkien');
     expect(book!.format).toBe('MP3');
     expect(book!.metadata!.audioParts!.map((p) => p.title)).toEqual([
-      'Prologue',
       'Book V - Chapter 01',
       'Book V - Chapter 02',
+      'Prologue',
     ]);
-    expect(book!.metadata!.audioParts!.map((p) => p.duration)).toEqual([102, 101, 100]);
+    expect(book!.metadata!.audioParts!.map((p) => p.duration)).toEqual([101, 100, 102]);
     expect(book!.altFilePaths).toEqual([
-      `${dir}/Prologue.mp3`,
       `${dir}/Book V - Chapter 01.mp3`,
       `${dir}/Book V - Chapter 02.mp3`,
+      `${dir}/Prologue.mp3`,
     ]);
     expect(book!.filePath).toBeUndefined();
     expect(saveBookConfig).toHaveBeenCalledTimes(1);
@@ -111,9 +111,11 @@ describe('importAudioFolder', () => {
     const fs = makeFs(Object.fromEntries(paths.map((p) => [p, `audio:${p}`])));
     const { book } = await run(fs, paths);
     const h = book!.hash;
-    expect(fs.store.get(`Books:${h}/The Return of the King.mp3`)).toBe(`audio:${dir}/Prologue.mp3`);
-    expect(fs.store.get(`Books:${h}/part-0002.mp3`)).toBe(`audio:${dir}/Book V - Chapter 01.mp3`);
-    expect(fs.store.get(`Books:${h}/part-0003.mp3`)).toBe(`audio:${dir}/Book V - Chapter 02.mp3`);
+    expect(fs.store.get(`Books:${h}/The Return of the King.mp3`)).toBe(
+      `audio:${dir}/Book V - Chapter 01.mp3`,
+    );
+    expect(fs.store.get(`Books:${h}/part-0002.mp3`)).toBe(`audio:${dir}/Book V - Chapter 02.mp3`);
+    expect(fs.store.get(`Books:${h}/part-0003.mp3`)).toBe(`audio:${dir}/Prologue.mp3`);
   });
 
   it('uses the picture beside the files as the cover', async () => {

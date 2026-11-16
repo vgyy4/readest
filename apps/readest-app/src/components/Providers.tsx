@@ -37,6 +37,7 @@ import Deferred from '@/components/Deferred';
 import { CommandPaletteProvider } from '@/components/command-palette';
 import AppLockScreen from '@/components/AppLockScreen';
 import ProfileGate from '@/components/profiles/ProfileGate';
+import AudiobookHost from '@/components/audiobook/AudiobookHost';
 import { installAccessFetch } from '@/libs/cloudflareAccess';
 // None of these is needed to show the library: they load in idle time after the first paint.
 const CommandPalette = dynamic(
@@ -258,6 +259,8 @@ const Providers = ({ children }: { children: React.ReactNode }) => {
                   style={appShellHidden ? { display: 'none' } : undefined}
                 >
                   <ProfileGate>{children}</ProfileGate>
+                  {/* Above the pages, so an audiobook keeps playing while you move around. */}
+                  <AudiobookHost />
                   <Deferred>
                     <CommandPalette />
                     <AtmosphereOverlay />

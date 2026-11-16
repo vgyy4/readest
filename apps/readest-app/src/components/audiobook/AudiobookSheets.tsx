@@ -36,7 +36,7 @@ export const Sheet: React.FC<{
     <div
       role='dialog'
       aria-label={title}
-      className='mx-auto max-h-[78vh] w-full max-w-md overflow-y-auto rounded-t-[28px] p-4 pb-[max(1rem,env(safe-area-inset-bottom))]'
+      className='ab-sheet-in mx-auto max-h-[78vh] w-full max-w-md overflow-y-auto rounded-t-[28px] p-4 pb-[max(1rem,env(safe-area-inset-bottom))]'
       data-surface=''
       style={{ background: 'var(--ab-container-high)', color: 'var(--ab-text)' }}
       onClick={(e) => e.stopPropagation()}
@@ -52,7 +52,7 @@ export const Sheet: React.FC<{
 );
 
 const roundButton =
-  'flex h-11 w-11 shrink-0 items-center justify-center rounded-full disabled:opacity-30';
+  'ab-press flex h-11 w-11 shrink-0 items-center justify-center rounded-full disabled:opacity-30';
 
 const Stepper: React.FC<{
   value: string;
@@ -98,7 +98,8 @@ const Stepper: React.FC<{
   </div>
 );
 
-const chip = (active: boolean) => clsx('rounded-full px-4 py-2 text-sm', active && 'font-semibold');
+const chip = (active: boolean) =>
+  clsx('ab-press rounded-full px-4 py-2 text-sm', active && 'ab-chosen font-semibold');
 
 const chipStyle = (active: boolean): React.CSSProperties => ({
   background: active ? 'var(--ab-primary)' : 'var(--ab-container)',
@@ -112,14 +113,22 @@ export const ChapterSheet: React.FC<{
   onClose: () => void;
 }> = ({ chapters, current, onPick, onClose }) => {
   const _ = useTranslation();
+  // Open at the chapter that is playing, not at the top of a long list.
+  const scrollToCurrent = (el: HTMLLIElement | null) => el?.scrollIntoView?.({ block: 'center' });
   return (
     <Sheet title={_('Chapters')} onClose={onClose}>
       <ul>
         {chapters.map((chapter, index) => (
-          <li key={`${index}-${chapter.start}`}>
+          <li
+            key={`${index}-${chapter.start}`}
+            // The rows nearest the one playing arrive first, then the sheet settles.
+            className='ab-row-in'
+            style={{ '--i': Math.min(Math.abs(index - current), 12) } as React.CSSProperties}
+            ref={index === current ? scrollToCurrent : undefined}
+          >
             <button
               type='button'
-              className='flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-start'
+              className='ab-press flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-start'
               style={index === current ? { background: 'var(--ab-container)' } : undefined}
               onClick={() => onPick(chapter)}
             >

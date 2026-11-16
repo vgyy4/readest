@@ -139,3 +139,16 @@ describe('parseAudiobook', () => {
     expect(info.chapters[0]).toMatchObject({ start: 0 });
   });
 });
+
+import { fitCoverSize } from '@/libs/audiobook/palette';
+
+describe('fitCoverSize', () => {
+  it('scales a picture down so the longer side fits, keeping its shape', () => {
+    expect(fitCoverSize(3000, 2000, 512)).toEqual({ width: 512, height: 341 });
+    expect(fitCoverSize(1000, 4000, 400)).toEqual({ width: 100, height: 400 });
+  });
+
+  it('never enlarges a small picture', () => {
+    expect(fitCoverSize(200, 300, 512)).toEqual({ width: 200, height: 300 });
+  });
+});

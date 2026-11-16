@@ -113,6 +113,34 @@ describe('createAudiobookSession (native) updates', () => {
   });
 });
 
+describe('createAudiobookSession artwork', () => {
+  let native: InstanceType<typeof mocks.FakeNativeSession>;
+  beforeEach(() => {
+    native = new mocks.FakeNativeSession();
+    mocks.current = native;
+  });
+
+  it('can show the cover once it is ready, keeping the title and author', async () => {
+    const { createAudiobookSession } = await import('@/libs/audiobook/session');
+    const session = createAudiobookSession(actions(), { ...info, artwork: undefined });
+    native.updateMetadata.mockClear();
+    session.setArtwork('data:image/jpeg;base64,AAAA');
+    expect(native.updateMetadata).toHaveBeenCalledWith({
+      title: 'Dune',
+      artist: 'Frank Herbert',
+      album: 'Dune',
+      artwork: 'data:image/jpeg;base64,AAAA',
+    });
+  });
+
+  it('does nothing when the session has no native side to tell', async () => {
+    mocks.current = null;
+    const { createAudiobookSession } = await import('@/libs/audiobook/session');
+    const session = createAudiobookSession(actions(), info);
+    expect(() => session.setArtwork('data:image/jpeg;base64,AAAA')).not.toThrow();
+  });
+});
+
 describe('createAudiobookSession (native)', () => {
   let native: InstanceType<typeof mocks.FakeNativeSession>;
   beforeEach(() => {

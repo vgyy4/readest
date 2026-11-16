@@ -57,20 +57,26 @@ export interface TaggedFile {
 }
 
 /**
- * The order the files play in. Track numbers decide when every file has one and no two files
- * share a (disc, track); otherwise the file names do, numbers read as numbers.
+ * The order the files play in, the way Voice does it: by name, numbers read as numbers ("Chapter 2"
+ * before "Chapter 10"), and within a folder its subfolders first. Track numbers in the tags are
+ * ignored on purpose: ripped sets often number the files alphabetically by title, which puts
+ * "Appendix" first. Numbering the files themselves ("01 - Synopsis.mp3") sets any order.
  */
 export const orderFolderFiles = <T extends TaggedFile>(files: T[]): T[] => {
-  const keys = files.map((f) => `${f.disc ?? 1}:${f.track}`);
-  const numbered =
-    files.length > 0 &&
-    files.every((f) => Number.isFinite(f.track) && (f.track as number) > 0) &&
-    new Set(keys).size === files.length;
-  return [...files].sort((a, b) =>
-    numbered
-      ? (a.disc ?? 1) - (b.disc ?? 1) || (a.track as number) - (b.track as number)
-      : naturalCompare(normalize(a.path), normalize(b.path)),
-  );
+  const segments = (path: string) => normalize(path).split('/').filter(Boolean);
+  const compare = (a: string, b: string) => {
+    const x = segments(a);
+    const y = segments(b);
+    for (let i = 0; i < Math.min(x.length, y.length); i++) {
+      const aIsFile = i === x.length - 1;
+      const bIsFile = i === y.length - 1;
+      if (aIsFile !== bIsFile) return aIsFile ? 1 : -1;
+      const byName = naturalCompare(x[i]!, y[i]!);
+      if (byName !== 0) return byName;
+    }
+    return x.length - y.length;
+  };
+  return [...files].sort((a, b) => compare(a.path, b.path));
 };
 
 const COVER_NAMES = ['cover', 'folder', 'front', 'albumart', 'album', 'poster', 'artwork'];

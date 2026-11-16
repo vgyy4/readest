@@ -441,3 +441,183 @@ html[data-perf='low'] .profile-avatar-option[aria-pressed='true'] {
 html[data-perf='low'] .library-page {
   background-image: none !important;
 }
+
+/* ── Audiobook motion, after the Voice app ─────────────────────────────────────────────────────
+   Springs are cubic-bezier curves that overshoot, and a few keyframes with a settle: both work on
+   iOS 15 WebKit and old Android WebViews (no linear(), no @property). Everything is off in lite
+   mode, on e-ink and for people who ask for reduced motion. */
+:root {
+  --ab-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ab-ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.ab-host-sheet {
+  transition:
+    transform 460ms var(--ab-ease),
+    opacity 240ms ease-out;
+  will-change: transform;
+}
+.ab-host-open {
+  transform: translateY(0);
+  opacity: 1;
+  animation: ab-sheet-up 480ms var(--ab-ease) both;
+}
+.ab-host-closed {
+  transform: translateY(100%);
+  opacity: 0;
+  pointer-events: none;
+}
+@keyframes ab-sheet-up {
+  from {
+    transform: translateY(100%);
+    opacity: 0.6;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.ab-mini {
+  transition:
+    transform 440ms var(--ab-spring),
+    opacity 200ms ease-out;
+}
+.ab-mini-in {
+  transform: translateY(0) scale(1);
+  opacity: 1;
+}
+.ab-mini-out {
+  transform: translateY(150%) scale(0.94);
+  opacity: 0;
+  pointer-events: none;
+}
+.ab-mini-in.ab-spring {
+  animation: ab-mini-pop 560ms var(--ab-ease) both;
+}
+@keyframes ab-mini-pop {
+  0% {
+    transform: translateY(150%) scale(0.92);
+  }
+  55% {
+    transform: translateY(-9px) scale(1.02);
+  }
+  75% {
+    transform: translateY(3px) scale(0.996);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* A button gives way under the finger and springs back, a little past where it started. */
+.ab-press {
+  transition: transform 300ms var(--ab-spring);
+  -webkit-tap-highlight-color: transparent;
+}
+.ab-press:active {
+  transform: scale(0.88);
+  transition-duration: 90ms;
+}
+
+/* The cover and the things that appear with it arrive with a settle. */
+.ab-pop {
+  animation: ab-pop 560ms var(--ab-ease) both;
+}
+@keyframes ab-pop {
+  0% {
+    transform: scale(0.86);
+    opacity: 0;
+  }
+  55% {
+    transform: scale(1.035);
+    opacity: 1;
+  }
+  80% {
+    transform: scale(0.99);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* A sheet rises with a little bounce; its rows follow one after another. */
+.ab-sheet-in {
+  animation: ab-sheet-bounce 520ms var(--ab-ease) both;
+}
+@keyframes ab-sheet-bounce {
+  0% {
+    transform: translateY(70%);
+    opacity: 0.4;
+  }
+  60% {
+    transform: translateY(-10px);
+    opacity: 1;
+  }
+  80% {
+    transform: translateY(3px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+.ab-row-in {
+  animation: ab-row-in 460ms var(--ab-spring) both;
+  animation-delay: calc(var(--i, 0) * 26ms);
+}
+@keyframes ab-row-in {
+  from {
+    transform: translateY(18px) scale(0.97);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+/* A chosen option pops. */
+.ab-chosen {
+  animation: ab-chosen 360ms var(--ab-spring) both;
+}
+@keyframes ab-chosen {
+  0% {
+    transform: scale(0.9);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+html[data-perf='low'] .ab-host-sheet,
+html[data-perf='low'] .ab-mini,
+html[data-perf='low'] .ab-press,
+html[data-perf='low'] .ab-pop,
+html[data-perf='low'] .ab-sheet-in,
+html[data-perf='low'] .ab-row-in,
+html[data-perf='low'] .ab-chosen,
+html[data-eink='true'] .ab-host-sheet,
+html[data-eink='true'] .ab-mini,
+html[data-eink='true'] .ab-press,
+html[data-eink='true'] .ab-pop,
+html[data-eink='true'] .ab-sheet-in,
+html[data-eink='true'] .ab-row-in,
+html[data-eink='true'] .ab-chosen {
+  animation: none !important;
+  transition: none !important;
+}
+.ab-host-plain.ab-host-open {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ab-host-sheet,
+  .ab-mini,
+  .ab-press,
+  .ab-pop,
+  .ab-sheet-in,
+  .ab-row-in,
+  .ab-chosen {
+    animation: none !important;
+    transition: none !important;
+  }
+}
