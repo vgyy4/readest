@@ -54,8 +54,9 @@ export const playPausePieces = (t: number): [string, string] => {
   const left: [number, number][][] = [
     [
       [8, 5],
-      [13.5, 8.2],
-      [13.5, 15.8],
+      // The pieces overlap a little where they meet: edge to edge, antialiasing leaves a hairline.
+      [13.9, 8.75],
+      [13.9, 15.25],
       [8, 19],
     ],
     [
@@ -67,10 +68,10 @@ export const playPausePieces = (t: number): [string, string] => {
   ];
   const right: [number, number][][] = [
     [
-      [13.5, 8.2],
+      [13.1, 8.25],
       [19, 12],
       [19, 12],
-      [13.5, 15.8],
+      [13.1, 15.75],
     ],
     [
       [13.5, 5],

@@ -17,6 +17,10 @@ interface PlaybackCoverProps {
   label: string;
 }
 
+/** Voice's elevation as a soft shadow in the cover's color: close under it, a little wider than it. */
+const glowShadow = (elevation: number) =>
+  `0 ${(elevation * 0.3).toFixed(1)}px ${(elevation * 0.9).toFixed(1)}px var(--ab-glow)`;
+
 /** The finger must pull the cover this far (of its width) for the swipe to count. */
 const SWIPE_THRESHOLD = 0.28;
 const DOUBLE_TAP_MS = 320;
@@ -73,7 +77,7 @@ const PlaybackCover: React.FC<PlaybackCoverProps> = ({
     el.style.opacity = String(d.alpha);
     el.style.borderRadius = `${d.radius}%`;
     // Voice's elevation, drawn as a glow in the cover's own color.
-    el.style.boxShadow = `0 ${d.glow * 0.5}px ${d.glow * 1.4}px var(--ab-glow)`;
+    el.style.boxShadow = glowShadow(d.glow);
   };
   const width = () => box.current?.getBoundingClientRect().width ?? 300;
   const setX = (x: number) => {
@@ -145,9 +149,13 @@ const PlaybackCover: React.FC<PlaybackCoverProps> = ({
     [],
   );
 
-  const gesture = useRef<{ id: number; startX: number; startY: number; dragging: boolean } | null>(
-    null,
-  );
+  // One finger (or the mouse) on the cover: where it started, and whether it has become a swipe.
+  const gesture = useRef<{
+    startX: number;
+    startY: number;
+    dragging: boolean;
+    vertical: boolean;
+  } | null>(null);
   const lastTap = useRef(0);
   const crossed = useRef(false);
 
@@ -171,25 +179,104 @@ const PlaybackCover: React.FC<PlaybackCoverProps> = ({
   };
   useEffect(() => () => pop.current?.cancel(), []);
 
-  const release = (cancelled: boolean) => {
+  const begin = (x: number, y: number) => {
+    gesture.current = { startX: x, startY: y, dragging: false, vertical: false };
+    flight.current?.cancel();
+    flying.current = false;
+  };
+
+  /** Follow the finger; true while this is a sideways swipe of the cover. */
+  const follow = (x: number, y: number): boolean => {
+    const g = gesture.current;
+    if (!g || !swipeable || g.vertical) return false;
+    const dx = x - g.startX;
+    const dy = y - g.startY;
+    if (!g.dragging) {
+      if (Math.abs(dx) + Math.abs(dy) < TAP_SLOP_PX) return false;
+      // Mostly vertical: not ours (the player closes with it); leave it alone.
+      if (Math.abs(dy) > Math.abs(dx)) {
+        g.vertical = true;
+        return false;
+      }
+      g.dragging = true;
+      offset.stop();
+    }
+    offset.snap(dx);
+    const over = Math.abs(dx) > width() * SWIPE_THRESHOLD;
+    if (over !== crossed.current) {
+      crossed.current = over;
+      if (over) navigator.vibrate?.(8);
+    }
+    return true;
+  };
+
+  const release = (x: number, cancelled: boolean) => {
     const g = gesture.current;
     gesture.current = null;
     if (!g) return;
-    const x = drag.current.x;
-    if (!g.dragging) return;
+    if (!g.dragging) {
+      // A tap; the second of two in quick succession plays or pauses.
+      if (!cancelled && !g.vertical && Math.abs(x - g.startX) <= TAP_SLOP_PX) {
+        const now = Date.now();
+        if (now - lastTap.current < DOUBLE_TAP_MS) {
+          lastTap.current = 0;
+          showPop();
+          onToggle();
+        } else lastTap.current = now;
+      }
+      return;
+    }
+    const dragged = drag.current.x;
     crossed.current = false;
     const w = width();
     if (cancelled) {
       offset.to(0, spring(STIFFNESS.Medium, 0.6));
-    } else if (Math.abs(x) > w * SWIPE_THRESHOLD) {
+    } else if (Math.abs(dragged) > w * SWIPE_THRESHOLD) {
       swipedChapter.current = true;
-      if (x < 0) onNext();
+      if (dragged < 0) onNext();
       else onPrevious();
-      fly(x < 0 ? -1 : 1);
+      fly(dragged < 0 ? -1 : 1);
     } else {
       offset.to(0, spring(STIFFNESS.MediumLow, 0.6));
     }
   };
+
+  // Touch goes through touch events, which every phone browser delivers the same way; the pointer
+  // events below are for the mouse. A sideways drag takes the touch (so the page does not scroll
+  // or navigate under it); a vertical one is left to the player's swipe down.
+  const handlers = useRef({ begin, follow, release });
+  handlers.current = { begin, follow, release };
+  useEffect(() => {
+    const el = card.current;
+    if (!el) return;
+    const point = (e: TouchEvent) => e.touches[0] ?? e.changedTouches[0];
+    const onStart = (e: TouchEvent) => {
+      const t = point(e);
+      if (e.touches.length !== 1 || !t) return;
+      handlers.current.begin(t.clientX, t.clientY);
+    };
+    const onMove = (e: TouchEvent) => {
+      const t = point(e);
+      if (!t) return;
+      if (handlers.current.follow(t.clientX, t.clientY) && e.cancelable) e.preventDefault();
+    };
+    const onEnd = (cancelled: boolean) => (e: TouchEvent) => {
+      const t = e.changedTouches[0];
+      handlers.current.release(t?.clientX ?? 0, cancelled);
+    };
+    const onEndNormal = onEnd(false);
+    const onEndCancelled = onEnd(true);
+    el.addEventListener('touchstart', onStart, { passive: true });
+    el.addEventListener('touchmove', onMove, { passive: false });
+    el.addEventListener('touchend', onEndNormal, { passive: true });
+    el.addEventListener('touchcancel', onEndCancelled, { passive: true });
+    return () => {
+      el.removeEventListener('touchstart', onStart);
+      el.removeEventListener('touchmove', onMove);
+      el.removeEventListener('touchend', onEndNormal);
+      el.removeEventListener('touchcancel', onEndCancelled);
+    };
+  }, []);
 
   return (
     <div ref={area} className='relative min-h-0 w-full flex-1'>
@@ -208,7 +295,7 @@ const PlaybackCover: React.FC<PlaybackCoverProps> = ({
             willChange: animate ? 'transform' : undefined,
             transform: `scale(${playing ? 1 : 0.86})`,
             borderRadius: `${playing ? 8 : 14}%`,
-            boxShadow: `0 ${(playing ? 28 : 4) * 0.5}px ${(playing ? 28 : 4) * 1.4}px var(--ab-glow)`,
+            boxShadow: glowShadow(playing ? 28 : 4),
           }}
           role='button'
           tabIndex={0}
@@ -221,45 +308,19 @@ const PlaybackCover: React.FC<PlaybackCoverProps> = ({
             else if (swipeable && e.key === 'ArrowLeft') onPrevious();
           }}
           onPointerDown={(e) => {
+            if (e.pointerType !== 'mouse') return;
             e.currentTarget.setPointerCapture?.(e.pointerId);
-            gesture.current = {
-              id: e.pointerId,
-              startX: e.clientX,
-              startY: e.clientY,
-              dragging: false,
-            };
-            flight.current?.cancel();
-            flying.current = false;
+            begin(e.clientX, e.clientY);
           }}
           onPointerMove={(e) => {
-            const g = gesture.current;
-            if (!g || g.id !== e.pointerId || !swipeable) return;
-            const dx = e.clientX - g.startX;
-            if (!g.dragging && Math.abs(dx) > TAP_SLOP_PX) {
-              g.dragging = true;
-              offset.stop();
-            }
-            if (!g.dragging) return;
-            offset.snap(dx);
-            const over = Math.abs(dx) > width() * SWIPE_THRESHOLD;
-            if (over !== crossed.current) {
-              crossed.current = over;
-              if (over) navigator.vibrate?.(8);
-            }
+            if (e.pointerType === 'mouse') follow(e.clientX, e.clientY);
           }}
           onPointerUp={(e) => {
-            const g = gesture.current;
-            if (g && !g.dragging && Math.abs(e.clientX - g.startX) <= TAP_SLOP_PX) {
-              const now = Date.now();
-              if (now - lastTap.current < DOUBLE_TAP_MS) {
-                lastTap.current = 0;
-                showPop();
-                onToggle();
-              } else lastTap.current = now;
-            }
-            release(false);
+            if (e.pointerType === 'mouse') release(e.clientX, false);
           }}
-          onPointerCancel={() => release(true)}
+          onPointerCancel={(e) => {
+            if (e.pointerType === 'mouse') release(e.clientX, true);
+          }}
         >
           {src && !failed ? (
             // eslint-disable-next-line @next/next/no-img-element

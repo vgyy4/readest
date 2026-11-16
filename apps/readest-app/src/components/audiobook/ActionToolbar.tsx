@@ -116,7 +116,7 @@ const ActionToolbar: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     style={{
       background: 'var(--ab-primary-container)',
       color: 'var(--ab-on-primary-container)',
-      boxShadow: '0 4px 14px var(--ab-glow)',
+      boxShadow: '0 2px 10px rgba(0, 0, 0, 0.2)',
     }}
   >
     {children}

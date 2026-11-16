@@ -189,9 +189,20 @@ describe('PlaybackCover', () => {
     return { ...view, props, card };
   };
   const drag = (card: HTMLElement, dx: number) => {
-    fireEvent.pointerDown(card, { pointerId: 1, clientX: 150, clientY: 100 });
-    fireEvent.pointerMove(card, { pointerId: 1, clientX: 150 + dx, clientY: 100 });
-    return () => fireEvent.pointerUp(card, { pointerId: 1, clientX: 150 + dx, clientY: 100 });
+    fireEvent.pointerDown(card, { pointerId: 1, pointerType: 'mouse', clientX: 150, clientY: 100 });
+    fireEvent.pointerMove(card, {
+      pointerId: 1,
+      pointerType: 'mouse',
+      clientX: 150 + dx,
+      clientY: 100,
+    });
+    return () =>
+      fireEvent.pointerUp(card, {
+        pointerId: 1,
+        pointerType: 'mouse',
+        clientX: 150 + dx,
+        clientY: 100,
+      });
   };
 
   it('rests at 86% with 14% corners when paused, and fills out to 8% corners when playing', () => {
@@ -248,8 +259,13 @@ describe('PlaybackCover', () => {
   it('plays and pauses on a double tap, not on a single one', () => {
     const { card, props } = setup();
     const tap = () => {
-      fireEvent.pointerDown(card, { pointerId: 1, clientX: 150, clientY: 100 });
-      fireEvent.pointerUp(card, { pointerId: 1, clientX: 150, clientY: 100 });
+      fireEvent.pointerDown(card, {
+        pointerId: 1,
+        pointerType: 'mouse',
+        clientX: 150,
+        clientY: 100,
+      });
+      fireEvent.pointerUp(card, { pointerId: 1, pointerType: 'mouse', clientX: 150, clientY: 100 });
     };
     tap();
     expect(props.onToggle).not.toHaveBeenCalled();
@@ -267,6 +283,59 @@ describe('PlaybackCover', () => {
     );
     await runAsync(3000);
     expect(card.style.transform).toContain('translate3d(0px');
+  });
+
+  // A phone's finger: touch events, which every phone browser sends alike.
+  const finger = (card: HTMLElement, from: [number, number], to: [number, number]) => {
+    fireEvent.touchStart(card, { touches: [{ clientX: from[0], clientY: from[1] }] });
+    const move = fireEvent.touchMove(card, { touches: [{ clientX: to[0], clientY: to[1] }] });
+    const end = () =>
+      fireEvent.touchEnd(card, {
+        touches: [],
+        changedTouches: [{ clientX: to[0], clientY: to[1] }],
+      });
+    return { end, moveWasCancelled: !move };
+  };
+
+  it('changes chapter on a swipe of the finger, and keeps the page from scrolling under it', async () => {
+    const { card, props } = setup();
+    const swipe = finger(card, [250, 100], [100, 104]);
+    expect(swipe.moveWasCancelled).toBe(true);
+    expect(card.style.transform).toContain('translate3d(-150px');
+    swipe.end();
+    expect(props.onNext).toHaveBeenCalledTimes(1);
+    await runAsync(2500);
+    expect(card.style.transform).toContain('translate3d(0px');
+  });
+
+  it('goes back on a swipe to the right, and not on a short pull', () => {
+    const { card, props } = setup();
+    finger(card, [100, 100], [260, 100]).end();
+    expect(props.onPrevious).toHaveBeenCalledTimes(1);
+    finger(card, [100, 100], [140, 100]).end();
+    expect(props.onNext).not.toHaveBeenCalled();
+    expect(props.onPrevious).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a vertical swipe alone, for the player to close with', () => {
+    const { card, props } = setup();
+    const swipe = finger(card, [150, 100], [152, 260]);
+    expect(swipe.moveWasCancelled).toBe(false);
+    swipe.end();
+    expect(props.onNext).not.toHaveBeenCalled();
+    expect(props.onPrevious).not.toHaveBeenCalled();
+  });
+
+  it('plays and pauses on a double tap of the finger', () => {
+    const { card, props } = setup();
+    const tap = () => {
+      fireEvent.touchStart(card, { touches: [{ clientX: 150, clientY: 100 }] });
+      fireEvent.touchEnd(card, { touches: [], changedTouches: [{ clientX: 150, clientY: 100 }] });
+    };
+    tap();
+    expect(props.onToggle).not.toHaveBeenCalled();
+    tap();
+    expect(props.onToggle).toHaveBeenCalledTimes(1);
   });
 
   it('shows headphones when there is no cover', () => {

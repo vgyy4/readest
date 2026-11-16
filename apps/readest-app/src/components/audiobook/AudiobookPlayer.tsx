@@ -35,6 +35,7 @@ import PlayButton from './PlayButton';
 import SkipButton from './SkipButton';
 import WavySlider from './WavySlider';
 import { useEntrance } from './useEntrance';
+import { useSwipeDown } from './useSwipeDown';
 import {
   BookmarksSheet,
   ChapterSheet,
@@ -105,6 +106,7 @@ export const AudiobookPlayerView: React.FC<AudiobookPlayerViewProps> = ({
   const [showTotal, setShowTotal] = useState(false);
   const [dragging, setDragging] = useState<number | null>(null);
   const root = useRef<HTMLDivElement>(null);
+  const scroller = useRef<HTMLDivElement>(null);
   const [room, setRoom] = useState({ width: 0, height: 0 });
 
   const { chapters, position, duration, speed, chapterIndex } = player;
@@ -136,6 +138,17 @@ export const AudiobookPlayerView: React.FC<AudiobookPlayerViewProps> = ({
   const sideBySide = room.width > room.height && room.width >= 600 && room.height >= 360;
   const compact = room.height > 0 && room.height < COMPACT_HEIGHT;
   const playSize = compact ? 80 : 104;
+
+  // Swipe down from the top does what the arrow does (Voice's drag down to close). The seek bar keeps
+  // its own drag; while a sheet is open the sheet takes the swipe.
+  useSwipeDown({
+    moveRef: root,
+    scrollRef: scroller,
+    enabled: onScreen && !sheet,
+    exit: 'handoff',
+    ignore: (target) => target instanceof Element && !!target.closest('[role="slider"]'),
+    onDismiss: onBack,
+  });
 
   const entrance = useEntrance(animate);
 

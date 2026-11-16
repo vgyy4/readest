@@ -66,7 +66,7 @@ const AudiobookMiniPlayer: React.FC<AudiobookMiniPlayerProps> = ({
     <div
       className={clsx(
         'ab-mini fixed inset-x-3 z-[60] mx-auto max-w-md',
-        'bottom-[max(0.75rem,env(safe-area-inset-bottom))]',
+        'bottom-[max(1.5rem,calc(env(safe-area-inset-bottom)+0.75rem))]',
         visible ? 'ab-mini-in' : 'ab-mini-out',
         !lite && !eink && 'ab-spring',
       )}

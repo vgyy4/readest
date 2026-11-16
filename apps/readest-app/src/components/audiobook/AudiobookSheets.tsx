@@ -1,8 +1,9 @@
 import clsx from 'clsx';
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { MdAdd, MdBookmarkAdd, MdDeleteOutline, MdRemove } from 'react-icons/md';
 import { playButtonPolygon } from '@/libs/audiobook/shapes';
 import NowPlayingBars from './NowPlayingBars';
+import { useSwipeDown } from './useSwipeDown';
 import { BookNote } from '@/types/book';
 import { useTranslation } from '@/hooks/useTranslation';
 import { type UiStyle, UI_STYLES, uiStyleLabel } from '@/libs/uiStyle';
@@ -33,38 +34,48 @@ export const Sheet: React.FC<{
   aside?: React.ReactNode;
   /** Nearly full height, for a long list. */
   tall?: boolean;
-}> = ({ title, onClose, children, aside, tall = false }) => (
-  <div
-    className='fixed inset-0 z-50 flex items-end bg-black/40'
-    onClick={onClose}
-    role='presentation'
-  >
+}> = ({ title, onClose, children, aside, tall = false }) => {
+  const mover = useRef<HTMLDivElement>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  // Swipe down closes it, from the top of its list, as in Voice.
+  useSwipeDown({ moveRef: mover, scrollRef: scroller, onDismiss: onClose });
+  return (
     <div
-      role='dialog'
-      aria-label={title}
-      className={clsx(
-        'ab-sheet-in mx-auto w-full max-w-md overflow-y-auto rounded-t-[28px] p-4 pb-[max(1rem,env(safe-area-inset-bottom))]',
-        tall ? 'h-[86vh]' : 'max-h-[78vh]',
-      )}
-      data-surface=''
-      style={{
-        background: tall ? 'var(--ab-surface)' : 'var(--ab-container-high)',
-        color: 'var(--ab-text)',
-      }}
-      onClick={(e) => e.stopPropagation()}
+      className='fixed inset-0 z-50 flex items-end bg-black/40'
+      onClick={onClose}
+      role='presentation'
     >
-      <div
-        className='mx-auto mb-3 h-1 w-10 rounded-full'
-        style={{ background: 'var(--ab-text-muted)', opacity: 0.4 }}
-      />
-      <div className='mb-3 flex items-baseline justify-between px-2'>
-        <h2 className='font-book text-2xl font-semibold leading-tight'>{title}</h2>
-        {aside}
+      {/* The wrapper follows the finger: the sheet itself has its entrance animation. */}
+      <div ref={mover} className='mx-auto w-full max-w-md'>
+        <div
+          ref={scroller}
+          role='dialog'
+          aria-label={title}
+          className={clsx(
+            'ab-sheet-in w-full overflow-y-auto overscroll-contain rounded-t-[28px] p-4 pb-[max(1rem,env(safe-area-inset-bottom))]',
+            tall ? 'h-[86vh]' : 'max-h-[78vh]',
+          )}
+          data-surface=''
+          style={{
+            background: tall ? 'var(--ab-surface)' : 'var(--ab-container-high)',
+            color: 'var(--ab-text)',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div
+            className='mx-auto mb-3 h-1 w-10 rounded-full'
+            style={{ background: 'var(--ab-text-muted)', opacity: 0.4 }}
+          />
+          <div className='mb-3 flex items-baseline justify-between px-2'>
+            <h2 className='font-book text-2xl font-semibold leading-tight'>{title}</h2>
+            {aside}
+          </div>
+          {children}
+        </div>
       </div>
-      {children}
     </div>
-  </div>
-);
+  );
+};
 
 const roundButton =
   'ab-press flex h-11 w-11 shrink-0 items-center justify-center rounded-full disabled:opacity-30';
