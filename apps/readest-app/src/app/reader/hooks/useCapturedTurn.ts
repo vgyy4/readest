@@ -414,6 +414,7 @@ export const useCapturedTurn = (bookKey: string, viewRef: React.RefObject<Foliat
         if (shouldRestore) await syncToolbarVisibility(true);
       },
       isPageFlip: () => getViewSettings(bookKey)?.pageTurnStyle === 'flip',
+      getColumnCount: () => view.renderer.columnCount ?? 1,
       navigate: async (forward: boolean) => {
         // The paginator's animated paths (push slide and the layered VT
         // turns) all gate on the `animated` attribute; dropping it makes

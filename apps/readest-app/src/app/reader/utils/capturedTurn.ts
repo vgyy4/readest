@@ -1,3 +1,4 @@
+import { BookFlipRenderer } from '@/utils/bookFlip';
 import { CurlGrab, PageCurlRenderer } from '@/utils/pageCurl';
 import { PageSlideRenderer, type PageSlideSettleOptions } from '@/utils/pageSlide';
 
@@ -65,8 +66,10 @@ export interface CapturedTurnHost {
   onCovered?: (style: CapturedTurnStyle, surfaceAlreadyPainted: boolean) => void | Promise<void>;
   /** Called under the restored flat frame before a cancelled turn is removed. */
   onCancelled?: (style: CapturedTurnStyle) => void | Promise<void>;
-  /** Page Flip is the chosen style: the whole sheet lifts over the spine instead of curling. */
+  /** Page Flip is the chosen style: the page turns over the spine like a book's instead of curling. */
   isPageFlip?: () => boolean;
+  /** How many pages are on screen side by side: with two the turn hinges in the middle. */
+  getColumnCount?: () => number;
   /** Instant (animation-less) page turn of the live view. */
   navigate: (forward: boolean) => Promise<void>;
 }
@@ -78,8 +81,10 @@ interface TurnRenderer {
   attach(container: HTMLElement, width: number, height: number, dpr?: number): void;
   setTexture(source: ImageBitmap): void;
   setBackdrop?(source: TexImageSource): void;
-  /** Built to draw Page Flip, which needs its own GPU context. */
+  /** Built to draw Page Flip. */
   readonly pageFlip?: boolean;
+  /** Two pages on screen side by side (the flip hinges in the middle) or one. */
+  setSpread?(spread: boolean): void;
   /** Turn as a Page Flip where the surface can; returns whether it will. */
   setFlip?(flip: boolean): boolean;
   /** Release a Page Flip to its own physics; false when the turn does not flip. */
@@ -712,6 +717,7 @@ export class CapturedPageTurn {
     // hiding the instant page swap happening underneath.
     try {
       renderer.setFlip?.(this.#pageFlip(style));
+      renderer.setSpread?.(this.#spread());
       renderer.render(0, this.#grab(active), active.rendererRtl);
       if (renderer.isUsable?.() === false) {
         throw new Error('Captured page-turn renderer became unavailable before navigation');
@@ -762,6 +768,11 @@ export class CapturedPageTurn {
       }
       throw error;
     }
+  }
+
+  /** Whether two pages are on screen side by side. */
+  #spread() {
+    return (this.#host.getColumnCount?.() ?? 1) > 1;
   }
 
   /** Whether this turn should flip its page rather than curl it. */
@@ -933,10 +944,9 @@ export class CapturedPageTurn {
     const renderer: TurnRenderer =
       style === 'slide'
         ? new PageSlideRenderer()
-        : new PageCurlRenderer({
-            preserveDrawingBuffer: false,
-            pageFlip: this.#pageFlip(style),
-          });
+        : this.#pageFlip(style)
+          ? new BookFlipRenderer({ preserveDrawingBuffer: false })
+          : new PageCurlRenderer({ preserveDrawingBuffer: false });
     overlay.setAttribute('aria-hidden', 'true');
     overlay.dataset['capturedTurnPrepared'] = String(preMount);
     Object.assign(overlay.style, {
@@ -952,6 +962,7 @@ export class CapturedPageTurn {
     hostElement.appendChild(overlay);
     try {
       renderer.attach(overlay, rect.width, rect.height, dpr);
+      renderer.setSpread?.(this.#spread());
       renderer.setTexture(bitmap);
       if (backdrop) renderer.setBackdrop?.(backdrop);
       // At progress zero both directions are the same flat page. Claim redraws
