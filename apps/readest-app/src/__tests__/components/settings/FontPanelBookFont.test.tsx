@@ -18,7 +18,19 @@ const state = vi.hoisted(() => ({
     defaultFontSize: 16,
     minimumFontSize: 8,
     fontWeight: 400,
-  } as Record<string, unknown>,
+  } as {
+    isGlobal: boolean;
+    ownFonts: boolean;
+    overrideFont: boolean;
+    defaultFont: string;
+    defaultCJKFont: string;
+    serifFont: string;
+    sansSerifFont: string;
+    monospaceFont: string;
+    defaultFontSize: number;
+    minimumFontSize: number;
+    fontWeight: number;
+  },
   global: {
     overrideFont: false,
     defaultFont: 'Sans-serif',
