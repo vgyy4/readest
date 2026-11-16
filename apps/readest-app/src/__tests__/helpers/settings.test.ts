@@ -1,8 +1,9 @@
 import { describe, test, expect, beforeEach, vi } from 'vitest';
 
-const getViewSettingsMock = vi.fn<(bookKey: string) => { isGlobal?: boolean } | undefined>(
-  () => undefined,
-);
+const getViewSettingsMock = vi.fn<
+  (bookKey: string) => { isGlobal?: boolean; ownFonts?: boolean; serifFont?: string } | undefined
+>(() => undefined);
+const open = vi.hoisted(() => ({ keys: [] as string[] }));
 const setViewSettingsMock = vi.fn();
 const getViewMock = vi.fn(() => null);
 const getViewStateMock = vi.fn(() => undefined);
@@ -10,7 +11,7 @@ const getViewStateMock = vi.fn(() => undefined);
 vi.mock('@/store/readerStore', () => ({
   useReaderStore: {
     getState: () => ({
-      bookKeys: [],
+      bookKeys: open.keys,
       getView: getViewMock,
       getViewState: getViewStateMock,
       getViewSettings: getViewSettingsMock,
@@ -60,6 +61,7 @@ const makeTextureSettings = (overrides: Partial<SystemSettings> = {}): SystemSet
   }) as unknown as SystemSettings;
 
 beforeEach(() => {
+  open.keys.length = 0;
   getViewSettingsMock.mockReset();
   getViewSettingsMock.mockReturnValue(undefined);
   setViewSettingsMock.mockReset();
@@ -224,5 +226,42 @@ describe('saveViewSettings', () => {
     // into the cross-device globals.
     expect(referenceChanges).toHaveLength(0);
     expect(useSettingsStore.getState().settings).toBe(initial);
+  });
+});
+
+describe('saveViewSettings and books with their own fonts', () => {
+  let views: Record<string, { isGlobal: boolean; ownFonts?: boolean; serifFont: string }> = {};
+  beforeEach(() => {
+    open.keys.push('follower', 'keeper', 'editing');
+    views = {
+      follower: { isGlobal: true, serifFont: 'Lora' },
+      keeper: { isGlobal: true, ownFonts: true, serifFont: 'Cardo' },
+      editing: { isGlobal: true, serifFont: 'Lora' },
+    };
+    getViewSettingsMock.mockImplementation((key: string) => views[key]);
+  });
+
+  test('a global font change reaches the books that follow the global fonts, not the ones with their own', async () => {
+    await saveViewSettings(envConfig, 'editing', 'serifFont', 'Gelasio');
+    expect(views['follower']!.serifFont).toBe('Gelasio');
+    expect(views['editing']!.serifFont).toBe('Gelasio');
+    expect(views['keeper']!.serifFont).toBe('Cardo');
+    expect(useSettingsStore.getState().settings.globalViewSettings.serifFont).toBe('Gelasio');
+  });
+
+  test('other settings still reach every open book', async () => {
+    await saveViewSettings(envConfig, 'editing', 'userStylesheet', 'p { margin: 0 }');
+    for (const key of ['follower', 'keeper', 'editing']) {
+      expect((views[key] as unknown as { userStylesheet: string }).userStylesheet).toBe(
+        'p { margin: 0 }',
+      );
+    }
+  });
+
+  test('a font change made with skipGlobal stays in that book and leaves the global fonts alone', async () => {
+    await saveViewSettings(envConfig, 'keeper', 'serifFont', 'Spectral', true);
+    expect(views['keeper']!.serifFont).toBe('Spectral');
+    expect(views['follower']!.serifFont).toBe('Lora');
+    expect(useSettingsStore.getState().settings.globalViewSettings.serifFont).toBeUndefined();
   });
 });

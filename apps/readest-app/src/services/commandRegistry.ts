@@ -161,6 +161,18 @@ const panelIcons: Record<SettingsPanelType, IconType> = {
 // font panel items
 const fontPanelItems = [
   {
+    id: 'settings.font.bookFont',
+    labelKey: _('Book Font'),
+    keywords: ['font', 'book', 'typeface', 'family', 'serif', 'sans', 'text', 'choose'],
+    section: 'Book Font',
+  },
+  {
+    id: 'settings.font.fontScope',
+    labelKey: _('Fonts Apply To'),
+    keywords: ['font', 'this book', 'all books', 'global', 'own', 'per book'],
+    section: 'Book Font',
+  },
+  {
     id: 'settings.font.overrideBookFont',
     labelKey: _('Override Book Font'),
     keywords: ['font', 'override', 'book', 'custom'],

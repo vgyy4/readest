@@ -5,6 +5,7 @@ import { useBookDataStore } from '@/store/bookDataStore';
 import { useReaderStore } from '@/store/readerStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { getStyles } from '@/utils/style';
+import { isFontFaceKey } from '@/utils/fontChoice';
 
 /**
  * Resolve the effective background texture for the library page (issue #4743).
@@ -97,8 +98,10 @@ export const saveViewSettings = async <K extends keyof ViewSettings>(
     };
     setSettings(nextSettings);
 
-    for (const bookKey of bookKeys) {
-      await applyViewSettings(bookKey);
+    for (const openKey of bookKeys) {
+      // A book with its own fonts does not take the global fonts.
+      if (openKey !== bookKey && isFontFaceKey(key) && getViewSettings(openKey)?.ownFonts) continue;
+      await applyViewSettings(openKey);
     }
     await saveSettings(envConfig, nextSettings);
   } else if (bookKey) {

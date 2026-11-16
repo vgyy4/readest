@@ -251,6 +251,11 @@ export interface BookStyle {
   userUIStylesheet: string;
 
   overrideFont: boolean;
+  /**
+   * This book keeps its own fonts: changes to the font settings made in it stay in it, and changes
+   * made to the global fonts elsewhere do not reach it. Without it the book follows the global fonts.
+   */
+  ownFonts?: boolean;
   overrideLayout: boolean;
   overrideColor: boolean;
   useBookLayout: boolean;

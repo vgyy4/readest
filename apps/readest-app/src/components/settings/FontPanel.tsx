@@ -1,4 +1,3 @@
-import clsx from 'clsx';
 import React, { useEffect, useState } from 'react';
 
 import {
@@ -18,6 +17,7 @@ import {
 } from '@/services/constants';
 import { BOOK_SANS_SERIF_FONTS, BOOK_SERIF_FONTS } from '@/styles/bookFonts';
 import { useEnv } from '@/context/EnvContext';
+import type { ViewSettings } from '@/types/book';
 import { useReaderStore } from '@/store/readerStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useSettingsStore } from '@/store/settingsStore';
@@ -30,7 +30,8 @@ import { useResetViewSettings } from '@/hooks/useResetSettings';
 import { useKeyDownActions } from '@/hooks/useKeyDownActions';
 import { saveViewSettings } from '@/helpers/settings';
 import type { SettingsPanelPanelProp } from './SettingsDialog';
-import { BoxedList, NavigationRow, SettingLabel, SettingsRow } from './primitives';
+import { BoxedList, NavigationRow, SettingsRow, SettingsSelect } from './primitives';
+import { bookFontOf, FONT_FACE_KEYS, pickBookFont } from '@/utils/fontChoice';
 import NumberInput from './NumberInput';
 import FontDropdown from './FontDropDown';
 import CustomFonts from './CustomFonts';
@@ -50,6 +51,7 @@ interface FontFaceProps {
   className?: string;
   family: string;
   label: string;
+  description?: string;
   options: string[];
   moreOptions?: string[];
   selected: string;
@@ -69,6 +71,7 @@ const FontFace = ({
   className,
   family,
   label,
+  description,
   options,
   moreOptions,
   selected,
@@ -77,11 +80,12 @@ const FontFace = ({
 }: FontFaceProps) => {
   const _ = useTranslation();
   return (
-    <div
-      className={clsx('flex h-14 items-center justify-between pe-4', className)}
+    <SettingsRow
+      label={label}
+      description={description}
+      className={className}
       data-setting-id={settingId}
     >
-      <SettingLabel className='min-w-10'>{label}</SettingLabel>
       <FontDropdown
         family={family}
         options={options.map((option) => ({ option, label: _(option) }))}
@@ -90,7 +94,7 @@ const FontFace = ({
         onSelect={onSelect}
         onGetFontFamily={handleFontFaceFont}
       />
-    </div>
+    </SettingsRow>
   );
 };
 
@@ -145,6 +149,9 @@ const FontPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
   const [sansSerifFont, setSansSerifFont] = useState(viewSettings.sansSerifFont);
   const [monospaceFont, setMonospaceFont] = useState(viewSettings.monospaceFont);
   const [fontWeight, setFontWeight] = useState(viewSettings.fontWeight);
+  // This book keeps its own fonts (the changes here stay in it), or follows the global fonts.
+  const [ownFonts, setOwnFonts] = useState(viewSettings.ownFonts ?? false);
+  const isSettingsGlobal = viewSettings.isGlobal ?? true;
 
   const [customFonts, setCustomFonts] = useState<string[]>(getFontFamilies());
   const [CJKFonts, setCJKFonts] = useState<string[]>(() => {
@@ -236,13 +243,16 @@ const FontPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
     }
   }, [appService]);
 
+  const saveFont = <K extends (typeof FONT_FACE_KEYS)[number]>(key: K, value: ViewSettings[K]) =>
+    saveViewSettings(envConfig, bookKey, key, value, ownFonts);
+
   useEffect(() => {
-    saveViewSettings(envConfig, bookKey, 'defaultFont', defaultFont);
+    saveFont('defaultFont', defaultFont);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defaultFont]);
 
   useEffect(() => {
-    saveViewSettings(envConfig, bookKey, 'defaultCJKFont', defaultCJKFont);
+    saveFont('defaultCJKFont', defaultCJKFont);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defaultCJKFont]);
 
@@ -257,27 +267,27 @@ const FontPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
   }, [minFontSize]);
 
   useEffect(() => {
-    saveViewSettings(envConfig, bookKey, 'fontWeight', fontWeight);
+    saveFont('fontWeight', fontWeight);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fontWeight]);
 
   useEffect(() => {
-    saveViewSettings(envConfig, bookKey, 'serifFont', serifFont);
+    saveFont('serifFont', serifFont);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serifFont]);
 
   useEffect(() => {
-    saveViewSettings(envConfig, bookKey, 'sansSerifFont', sansSerifFont);
+    saveFont('sansSerifFont', sansSerifFont);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sansSerifFont]);
 
   useEffect(() => {
-    saveViewSettings(envConfig, bookKey, 'monospaceFont', monospaceFont);
+    saveFont('monospaceFont', monospaceFont);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monospaceFont]);
 
   useEffect(() => {
-    saveViewSettings(envConfig, bookKey, 'overrideFont', overrideFont);
+    saveFont('overrideFont', overrideFont);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overrideFont]);
 
@@ -302,15 +312,98 @@ const FontPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
     );
   }
 
+  // The one place to choose the font of the book: any font, serif or not.
+  const knownSerif = [...SERIF_FONTS, ...BOOK_SERIF_FONTS, ...SYSTEM_BOOK_SERIF_FONTS];
+  const knownSans = [...SANS_SERIF_FONTS, ...BOOK_SANS_SERIF_FONTS];
+  const isApple = ['ios', 'macos'].includes(osPlatform);
+  const bookFontOptions = Array.from(
+    new Set([
+      ...customFonts,
+      ...SERIF_FONTS.filter(filterNonFreeFonts),
+      ...BOOK_SERIF_FONTS,
+      ...(isApple ? SYSTEM_BOOK_SERIF_FONTS : []),
+      ...SANS_SERIF_FONTS.filter(filterNonFreeFonts),
+      ...BOOK_SANS_SERIF_FONTS,
+    ]),
+  ).map((option) => ({ option, label: _(option) }));
+  const bookFont = bookFontOf({ defaultFont, serifFont, sansSerifFont });
+
+  const handlePickBookFont = (font: string) => {
+    const change = pickBookFont(font, { defaultFont }, { serif: knownSerif, sans: knownSans });
+    setDefaultFont(change.defaultFont);
+    if (change.serifFont) setSerifFont(change.serifFont);
+    if (change.sansSerifFont) setSansSerifFont(change.sansSerifFont);
+  };
+
+  // Follow the global fonts again, or keep fonts of this book's own.
+  const handleFontScope = async (own: boolean) => {
+    setOwnFonts(own);
+    await saveViewSettings(envConfig, bookKey, 'ownFonts', own, true, false);
+    if (own) return;
+    const global = settings.globalViewSettings;
+    for (const key of FONT_FACE_KEYS) {
+      await saveViewSettings(envConfig, bookKey, key, global[key], true);
+    }
+    setDefaultFont(global.defaultFont);
+    setSerifFont(global.serifFont);
+    setSansSerifFont(global.sansSerifFont);
+    setMonospaceFont(global.monospaceFont);
+    setDefaultCJKFont(global.defaultCJKFont);
+    setFontWeight(global.fontWeight);
+    setOverrideFont(global.overrideFont);
+  };
+
   return (
     <div className='my-4 w-full space-y-6'>
-      <label
-        data-setting-id='settings.font.overrideBookFont'
-        className='flex cursor-pointer items-center justify-between px-4'
-      >
-        <SettingLabel>{_('Override Book Font')}</SettingLabel>
-        <Toggle checked={overrideFont} onChange={() => setOverrideFont(!overrideFont)} />
-      </label>
+      <BoxedList title={_('Book Font')}>
+        <SettingsRow
+          label={_('Book Font')}
+          description={_('The font the text of the book is shown in')}
+          data-setting-id='settings.font.bookFont'
+        >
+          <FontDropdown
+            options={bookFontOptions}
+            moreOptions={sysFonts.map((option) => ({ option, label: option }))}
+            selected={bookFont}
+            onSelect={handlePickBookFont}
+            onGetFontFamily={(option) =>
+              `'${option}', ${knownSans.includes(option) ? 'sans-serif' : 'serif'}`
+            }
+          />
+        </SettingsRow>
+        {bookKey && (
+          <SettingsRow
+            label={_('Fonts Apply To')}
+            description={
+              !isSettingsGlobal
+                ? _('Global Settings is off: this book has its own settings')
+                : ownFonts
+                  ? _('Only this book. Other books keep the global fonts')
+                  : _('All books that do not have their own fonts')
+            }
+            data-setting-id='settings.font.fontScope'
+          >
+            <SettingsSelect
+              value={ownFonts ? 'book' : 'global'}
+              disabled={!isSettingsGlobal}
+              ariaLabel={_('Fonts Apply To')}
+              onChange={(e) => void handleFontScope(e.target.value === 'book')}
+              options={[
+                { value: 'global', label: _('All books (global fonts)') },
+                { value: 'book', label: _('This book only') },
+              ]}
+            />
+          </SettingsRow>
+        )}
+        <SettingsRow
+          asLabel
+          label={_('Override Book Font')}
+          description={_('Use these fonts even when the book picks its own')}
+          data-setting-id='settings.font.overrideBookFont'
+        >
+          <Toggle checked={overrideFont} onChange={() => setOverrideFont(!overrideFont)} />
+        </SettingsRow>
+      </BoxedList>
 
       <BoxedList title={_('Font Size')}>
         <NumberInput
@@ -342,8 +435,12 @@ const FontPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
         />
       </BoxedList>
 
-      <BoxedList title={_('Font Family')}>
-        <SettingsRow label={_('Default Font')} data-setting-id='settings.font.defaultFont'>
+      <BoxedList title={_('Text Style')}>
+        <SettingsRow
+          label={_('Default Font')}
+          description={_('Serif or sans-serif: which of the fonts below the book uses')}
+          data-setting-id='settings.font.defaultFont'
+        >
           <FontDropdown
             options={fontFamilyOptions}
             selected={defaultFont}
@@ -355,6 +452,7 @@ const FontPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
           <FontFace
             family='serif'
             label={_('CJK Font')}
+            description={_('For Chinese, Japanese and Korean text')}
             options={CJKFonts}
             selected={defaultCJKFont}
             onSelect={setDefaultCJKFont}
@@ -363,10 +461,11 @@ const FontPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
         )}
       </BoxedList>
 
-      <BoxedList title={_('Font Face')}>
+      <BoxedList title={_('Fonts by Style')}>
         <FontFace
           family='serif'
           label={_('Serif Font')}
+          description={_('Used when the Default Font is Serif')}
           options={[
             ...customFonts,
             ...SERIF_FONTS.filter(filterNonFreeFonts),
@@ -382,6 +481,7 @@ const FontPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
         <FontFace
           family='sans-serif'
           label={_('Sans-Serif Font')}
+          description={_('Used when the Default Font is Sans-serif')}
           options={[
             ...customFonts,
             ...SANS_SERIF_FONTS.filter(filterNonFreeFonts),
@@ -396,6 +496,7 @@ const FontPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
         <FontFace
           family='monospace'
           label={_('Monospace Font')}
+          description={_('For code and text that needs fixed-width letters')}
           options={[...customFonts, ...MONOSPACE_FONTS]}
           moreOptions={sysFonts}
           selected={monospaceFont}
