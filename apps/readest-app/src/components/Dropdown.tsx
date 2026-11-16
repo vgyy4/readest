@@ -11,6 +11,7 @@ import React, {
 import { useDropdownContext } from '@/context/DropdownContext';
 import { Overlay } from './Overlay';
 import MenuItem from './MenuItem';
+import { fitVertically, MENU_GAP } from '@/utils/dropdownFit';
 
 interface DropdownProps {
   label: string;
@@ -95,9 +96,30 @@ const Dropdown: React.FC<DropdownProps> = ({
     if (!isOpen) return undefined;
     const content = detailsRef.current?.querySelector<HTMLElement>(':scope > :not(summary)');
     if (!content) return undefined;
+    const toggle = detailsRef.current?.parentElement?.querySelector('button');
     const clamp = () => {
       content.style.transform = '';
-      const rect = content.getBoundingClientRect();
+      content.style.maxHeight = '';
+      content.style.overflowY = '';
+      let rect = content.getBoundingClientRect();
+      const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+      // Above or below its button, whichever side has room for it.
+      let dy = 0;
+      if (toggle) {
+        const anchor = toggle.getBoundingClientRect();
+        const fit = fitVertically(rect, anchor, viewportHeight, MENU_VIEWPORT_PADDING);
+        if (fit.side) {
+          if (fit.maxHeight) {
+            content.style.maxHeight = `${fit.maxHeight}px`;
+            content.style.overflowY = 'auto';
+            rect = content.getBoundingClientRect();
+          }
+          dy =
+            fit.side === 'above'
+              ? anchor.top - MENU_GAP - rect.bottom
+              : anchor.bottom + MENU_GAP - rect.top;
+        }
+      }
       let dx = 0;
       if (rect.right > window.innerWidth - MENU_VIEWPORT_PADDING) {
         dx = window.innerWidth - MENU_VIEWPORT_PADDING - rect.right;
@@ -105,8 +127,8 @@ const Dropdown: React.FC<DropdownProps> = ({
       if (rect.left + dx < MENU_VIEWPORT_PADDING) {
         dx = MENU_VIEWPORT_PADDING - rect.left;
       }
-      if (dx !== 0) {
-        content.style.transform = `translateX(${dx}px)`;
+      if (dx !== 0 || dy !== 0) {
+        content.style.transform = `translate(${dx}px, ${dy}px)`;
       }
     };
     clamp();
@@ -117,6 +139,8 @@ const Dropdown: React.FC<DropdownProps> = ({
       window.removeEventListener('resize', clamp);
       observer?.disconnect();
       content.style.transform = '';
+      content.style.maxHeight = '';
+      content.style.overflowY = '';
     };
   }, [isOpen]);
 

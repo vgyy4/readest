@@ -395,6 +395,8 @@ export const DEFAULT_BOOK_STYLE: BookStyle = {
 export const DEFAULT_MOBILE_VIEW_SETTINGS: Partial<ViewSettings> = {
   fullJustification: false,
   animated: true,
+  // The turn that looks like a real page lifting over the spine (physics, perspective, shadow).
+  pageTurnStyle: 'flip',
   defaultFont: 'Sans-serif',
   disableDoubleClick: true,
   spreadMode: 'none',
