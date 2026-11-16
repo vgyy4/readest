@@ -476,7 +476,9 @@ const ControlPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterRes
       <BoxedList title={_('Animation')} data-setting-id='settings.control.pagingAnimation'>
         <SettingsSwitchRow
           label={_('Paging Animation')}
-          checked={animated}
+          description={isEink ? _('Off in e-ink mode: nothing moves') : undefined}
+          checked={animated && !isEink}
+          disabled={isEink}
           onChange={() => setAnimated(!animated)}
         />
         <SettingsRow label={_('Animation Style')} data-setting-id='settings.control.pageTurnStyle'>
@@ -489,7 +491,7 @@ const ControlPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterRes
             onChange={(e) => setPageTurnStyle(e.target.value as PageTurnStyle)}
             ariaLabel={_('Animation Style')}
             options={turnStyleOptions}
-            disabled={!animated}
+            disabled={!animated || isEink}
           />
         </SettingsRow>
       </BoxedList>
@@ -503,11 +505,13 @@ const ControlPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterRes
             data-setting-id='settings.control.einkMode'
           />
         )}
-        {(appService?.isAndroidApp || appService?.appPlatform === 'web') && (
+        {isEink && (appService?.isAndroidApp || appService?.appPlatform === 'web') && (
           <SettingsSwitchRow
-            label={_('Color E-Ink Mode')}
-            checked={isColorEink}
-            disabled={!isEink}
+            label={_('Black & White Only')}
+            description={_(
+              'Everything is drawn in black and white. Turn off for colour e-ink screens.',
+            )}
+            checked={!isColorEink}
             onChange={() => setIsColorEink(!isColorEink)}
             data-setting-id='settings.control.colorEinkMode'
           />

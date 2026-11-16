@@ -86,6 +86,10 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
     void saveViewSettings(envConfig, '', 'isEink', !isEink);
   };
   const { settings, setSettingsDialogOpen } = useSettingsStore();
+  const isBlackAndWhite = !settings.globalViewSettings?.isColorEink;
+  const toggleBlackAndWhite = () => {
+    void saveViewSettings(envConfig, '', 'isColorEink', isBlackAndWhite);
+  };
   const [isAlwaysOnTop, setIsAlwaysOnTop] = useState(settings.alwaysOnTop);
   const [isAlwaysShowStatusBar, setIsAlwaysShowStatusBar] = useState(settings.alwaysShowStatusBar);
   const [isOpenLastBooks, setIsOpenLastBooks] = useState(settings.openLastBooks);
@@ -468,6 +472,14 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
         onClick={() => setPerfMode(nextPerfMode(perfMode))}
       />
       <MenuItem label={_('E-ink mode')} Icon={MdTabletMac} toggled={isEink} onClick={toggleEink} />
+      {isEink && (
+        <MenuItem
+          label={_('Black & white only')}
+          Icon={MdTabletMac}
+          toggled={isBlackAndWhite}
+          onClick={toggleBlackAndWhite}
+        />
+      )}
       {user && (hasProfiles(getCachedProfiles()) || isInsideProfile()) && (
         <MenuItem label={_('Switch profile')} Icon={MdSwitchAccount} onClick={leaveProfile} />
       )}

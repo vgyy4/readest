@@ -6,6 +6,10 @@
  * result straight to the element (no React render per frame).
  */
 
+/** E-ink screens are too slow for motion: nothing is animated there, everything just arrives. */
+export const motionOff = () =>
+  typeof document !== 'undefined' && document.documentElement.getAttribute('data-eink') === 'true';
+
 export interface SpringSpec {
   /** 1 settles without overshoot; below 1 it overshoots and bounces. */
   damping: number;
@@ -93,6 +97,7 @@ export class Spring {
   }
 
   to(target: number, spec?: SpringSpec) {
+    if (motionOff()) return this.snap(target);
     if (spec) this.spec = spec;
     this.target = target;
     if (!this.frame) {
@@ -196,6 +201,10 @@ export const tween = (
   ease: (t: number) => number,
   onUpdate: (value: number) => void,
 ) => {
+  if (motionOff()) {
+    onUpdate(ease(1));
+    return { done: Promise.resolve(), cancel: () => {} };
+  }
   let frame = 0;
   let cancelled = false;
   const done = new Promise<void>((resolve) => {

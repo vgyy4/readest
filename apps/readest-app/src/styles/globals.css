@@ -769,6 +769,27 @@ input[type='range'].slider-input {
   transition: none !important;
 }
 
+/* E-ink: nothing moves. A slow screen smears every animation, so there are none: no keyframes, no
+   transitions, no smooth scrolling and no view transitions between pages. */
+[data-eink='true'] *,
+[data-eink='true'] *::before,
+[data-eink='true'] *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
+
+html[data-eink='true']::view-transition-group(*),
+html[data-eink='true']::view-transition-old(*),
+html[data-eink='true']::view-transition-new(*) {
+  animation: none !important;
+}
+
+/* Black and white e-ink: everything is drawn in grey, the app, the book and its pictures alike. */
+html[data-eink-bw='true'] {
+  filter: grayscale(1);
+}
+
 /* settings highlight animation for command palette */
 @keyframes settings-highlight-pulse {
   0%,

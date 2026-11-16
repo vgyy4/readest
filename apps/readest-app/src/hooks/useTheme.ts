@@ -131,6 +131,8 @@ export const useTheme = ({
     const colorScheme = isDarkMode ? 'dark' : 'light';
     document.documentElement.setAttribute('data-theme', `${themeColor}-${colorScheme}`);
     document.documentElement.style.setProperty('color-scheme', colorScheme);
+    // Black and white e-ink draws everything in grey (see html[data-eink-bw] in globals.css).
+    document.documentElement.setAttribute('data-eink-bw', String(!!isBwEink));
     document.documentElement.style.setProperty('--scroll-bg-opacity', isBwEink ? '1.0' : '0.5');
     document.documentElement.style.setProperty(
       '--overlayer-highlight-opacity',
