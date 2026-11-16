@@ -10,6 +10,11 @@ name: Create Android signing key
 # key exists.
 
 on:
+  # Runs once when this file is pushed to the working branch (the dispatch button only appears for
+  # workflows on main).
+  push:
+    branches: [ccr-03f565fc-tppj75]
+    paths: ['.github/workflows/android-signing-key.yml']
   workflow_dispatch:
     inputs:
       replace:
