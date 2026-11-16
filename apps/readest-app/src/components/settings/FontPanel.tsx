@@ -13,8 +13,10 @@ import {
   NON_FREE_FONTS,
   SANS_SERIF_FONTS,
   SERIF_FONTS,
+  SYSTEM_BOOK_SERIF_FONTS,
   WINDOWS_FONTS,
 } from '@/services/constants';
+import { BOOK_SANS_SERIF_FONTS, BOOK_SERIF_FONTS } from '@/styles/bookFonts';
 import { useEnv } from '@/context/EnvContext';
 import { useReaderStore } from '@/store/readerStore';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -365,7 +367,13 @@ const FontPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
         <FontFace
           family='serif'
           label={_('Serif Font')}
-          options={[...customFonts, ...SERIF_FONTS.filter(filterNonFreeFonts), ...CJK_SERIF_FONTS]}
+          options={[
+            ...customFonts,
+            ...SERIF_FONTS.filter(filterNonFreeFonts),
+            ...BOOK_SERIF_FONTS,
+            ...(['ios', 'macos'].includes(getOSPlatform()) ? SYSTEM_BOOK_SERIF_FONTS : []),
+            ...CJK_SERIF_FONTS,
+          ]}
           moreOptions={sysFonts}
           selected={serifFont}
           onSelect={setSerifFont}
@@ -377,6 +385,7 @@ const FontPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
           options={[
             ...customFonts,
             ...SANS_SERIF_FONTS.filter(filterNonFreeFonts),
+            ...BOOK_SANS_SERIF_FONTS,
             ...CJK_SANS_SERIF_FONTS,
           ]}
           moreOptions={sysFonts}

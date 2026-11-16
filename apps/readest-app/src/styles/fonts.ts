@@ -2,6 +2,7 @@ import { getRuntimeConfig } from '@/services/runtimeConfig';
 import { isCJKEnv } from '@/utils/misc';
 import { getFilename } from '@/utils/path';
 import { md5Fingerprint } from '@/utils/md5';
+import { getBookFontFaces } from './bookFonts';
 
 export type FontFormat = 'ttf' | 'otf' | 'woff' | 'woff2';
 
@@ -119,7 +120,11 @@ export const mountAdditionalFonts = async (document: Document, isCJK = false) =>
 
   // Mount font stylesheets and @font-face rules
   let links = getAdditionalBasicFontLinks();
-  let fontFaces = '';
+  // The fonts bundled with the app (they work offline). A book's iframe cannot resolve a relative
+  // address, so they are addressed from the app's own origin.
+  const origin =
+    typeof location !== 'undefined' && location.origin !== 'null' ? location.origin : '';
+  let fontFaces = getBookFontFaces(origin);
 
   if (mountCJKFonts) {
     fontFaces = getAdditionalCJKFontFaces();

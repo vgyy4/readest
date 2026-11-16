@@ -550,7 +550,19 @@ export const SERIF_FONTS = [
   'Times New Roman',
 ];
 
-export const NON_FREE_FONTS = ['Georgia', 'Times New Roman'];
+/**
+ * Serif faces that ship with Apple's and Microsoft's systems only: shown where the system has them
+ * (they are not on Android or Linux), never part of the app.
+ */
+export const SYSTEM_BOOK_SERIF_FONTS = [
+  'Palatino',
+  'Baskerville',
+  'Charter',
+  'Iowan Old Style',
+  'Athelas',
+];
+
+export const NON_FREE_FONTS = ['Georgia', 'Times New Roman', ...SYSTEM_BOOK_SERIF_FONTS];
 
 export const CJK_SERIF_FONTS = [
   _('LXGW WenKai GB Screen'),
