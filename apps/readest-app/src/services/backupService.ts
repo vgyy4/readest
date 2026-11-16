@@ -4,6 +4,7 @@ import { EXTS } from '@/libs/document';
 import { isTauriAppPlatform } from '@/services/environment';
 import { Book, BookConfig, BookNote } from '@/types/book';
 import { SystemSettings } from '@/types/settings';
+import type { CustomFont } from '@/styles/fonts';
 import { getActiveProfileId } from '@/libs/profiles/active';
 import { getLibraryFilename } from '@/utils/book';
 import { stampBookConfigSchema } from '@/utils/serializer';
@@ -11,6 +12,31 @@ import { configureZip } from '@/utils/zip';
 
 /** Book file extensions for identifying book files in backup directories. */
 const BOOK_EXTS = new Set(Object.values(EXTS));
+
+/** Where the installed fonts' files sit in a backup (and on the device: the `Fonts` base). */
+export const FONTS_DIR = 'Fonts';
+/** The list of the fonts in a backup. */
+export const FONTS_BACKUP_FILENAME = 'fonts.json';
+
+/** A font as a backup records it: what the font store needs to register the restored file. */
+export type BackupFont = Pick<
+  CustomFont,
+  | 'name'
+  | 'path'
+  | 'family'
+  | 'style'
+  | 'weight'
+  | 'variable'
+  | 'contentId'
+  | 'bundleDir'
+  | 'byteSize'
+>;
+
+const isSafeFontPath = (path: unknown): path is string =>
+  typeof path === 'string' &&
+  path.length > 0 &&
+  !path.startsWith('/') &&
+  !path.split('/').some((part) => part === '..' || part === '.');
 
 /** Root-level zip entry name for the backed-up global settings snapshot. */
 export const SETTINGS_BACKUP_FILENAME = 'settings.json';
@@ -177,6 +203,32 @@ export function mergeRestoredSettings(
   ) as unknown as SystemSettings;
 }
 
+/** Whose reading place a restore keeps for a book: the further one, the backup's, or the reader's own. */
+export type PlaceChoice = 'furthest' | 'backup' | 'current';
+
+/** A book the reader has already started, whose place differs from the one in the backup. */
+export interface ProgressConflict {
+  hash: string;
+  title: string;
+  current: { location?: string; progress?: [number, number] };
+  backup: { location?: string; progress?: [number, number] };
+}
+
+export interface RestoreOptions {
+  /**
+   * Called once, before anything is written, when the backup would change the place of books the
+   * reader has already started. Answer which place to keep. Without it the further one wins.
+   */
+  chooseProgress?: (conflicts: ProgressConflict[]) => Promise<'backup' | 'current'>;
+}
+
+const placeOf = (config: Partial<BookConfig> | undefined, book: Book | undefined) => ({
+  location: config?.location,
+  progress: (config?.progress ?? book?.progress) as [number, number] | undefined,
+});
+const hasStarted = (place: { location?: string; progress?: [number, number] }) =>
+  !!place.location || (place.progress?.[0] ?? 0) > 0;
+
 /**
  * Merge two BookConfigs: uses the config with higher reading progress as base,
  * then merges booknotes from both (deduplicating by id, latest updatedAt wins).
@@ -184,12 +236,14 @@ export function mergeRestoredSettings(
 export function mergeBookConfigs(
   current: Partial<BookConfig>,
   backup: Partial<BookConfig>,
+  place: PlaceChoice = 'furthest',
 ): Partial<BookConfig> {
   const currentPage = current.progress?.[0] ?? 0;
   const backupPage = backup.progress?.[0] ?? 0;
 
-  // Use the config with higher progress as base
-  const base = backupPage > currentPage ? { ...backup } : { ...current };
+  // The side whose place is kept: the further one, unless the reader chose.
+  const useBackup = place === 'backup' || (place === 'furthest' && backupPage > currentPage);
+  const base = useBackup ? { ...backup } : { ...current };
 
   // Merge booknotes from both configs
   const noteMap = new Map<string, BookNote>();
@@ -359,6 +413,95 @@ export async function addBackupEntriesToZip(
       console.warn(`Skipping file ${file.path}:`, error);
     }
   }
+
+  await addFontsToZip(writer, appService);
+}
+
+/**
+ * The installed fonts: their files under Fonts/ and the list in fonts.json. Fonts are the account's
+ * and the device's, not a profile's, so every backup carries them, the admin's and a profile's.
+ */
+async function addFontsToZip(writer: ZipWriter<unknown>, appService: AppService): Promise<void> {
+  try {
+    const { Uint8ArrayReader } = await import('@zip.js/zip.js');
+    const settings = await appService.loadSettings();
+    const listed: BackupFont[] = [];
+    for (const font of settings.customFonts ?? []) {
+      if (font.deletedAt || font.unavailable || !isSafeFontPath(font.path)) continue;
+      try {
+        const content = await appService.readFile(font.path, FONTS_DIR, 'binary');
+        await writer.add(
+          `${FONTS_DIR}/${font.path}`,
+          new Uint8ArrayReader(new Uint8Array(content as ArrayBuffer)),
+          {
+            level: 0,
+          },
+        );
+        listed.push({
+          name: font.name,
+          path: font.path,
+          family: font.family,
+          style: font.style,
+          weight: font.weight,
+          variable: font.variable,
+          contentId: font.contentId,
+          bundleDir: font.bundleDir,
+          byteSize: font.byteSize,
+        });
+      } catch (error) {
+        console.warn(`Skipping font ${font.path}:`, error);
+      }
+    }
+    if (listed.length > 0) {
+      await writer.add(
+        FONTS_BACKUP_FILENAME,
+        new Uint8ArrayReader(new TextEncoder().encode(JSON.stringify(listed, null, 2))),
+      );
+    }
+  } catch (error) {
+    console.warn('Skipping fonts backup:', error);
+  }
+}
+
+/** Put the fonts of a backup back on the device (a file already there is kept); return them. */
+async function restoreFonts(
+  appService: AppService,
+  fileEntries: { filename: string; getData?: unknown }[],
+): Promise<BackupFont[]> {
+  const { Uint8ArrayWriter } = await import('@zip.js/zip.js');
+  type Entry = {
+    filename: string;
+    getData: (w: InstanceType<typeof Uint8ArrayWriter>) => Promise<Uint8Array>;
+  };
+  const entries = fileEntries as unknown as Entry[];
+  const listEntry = entries.find((e) => e.filename === FONTS_BACKUP_FILENAME);
+  if (!listEntry) return [];
+  const restored: BackupFont[] = [];
+  try {
+    const list: BackupFont[] = JSON.parse(
+      new TextDecoder().decode(await listEntry.getData(new Uint8ArrayWriter())),
+    );
+    for (const font of list) {
+      if (!isSafeFontPath(font.path)) continue;
+      const entry = entries.find((e) => e.filename === `${FONTS_DIR}/${font.path}`);
+      if (!entry) continue;
+      try {
+        if (!(await appService.exists(font.path, FONTS_DIR))) {
+          if (font.bundleDir && isSafeFontPath(font.bundleDir)) {
+            await appService.createDir(font.bundleDir, FONTS_DIR, true);
+          }
+          const data = await entry.getData(new Uint8ArrayWriter());
+          await appService.writeFile(font.path, FONTS_DIR, data.buffer as ArrayBuffer);
+        }
+        restored.push(font);
+      } catch (error) {
+        console.warn(`Failed to restore font ${font.path}:`, error);
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to restore fonts from backup:', error);
+  }
+  return restored;
 }
 
 const ZIP_WRITE_CONFIG: Partial<Configuration> = {
@@ -433,7 +576,13 @@ export async function restoreFromBackupZip(
   appService: AppService,
   zipBlob: Blob,
   onProgress?: (current: number, total: number, filename: string) => void,
-): Promise<{ booksAdded: number; booksUpdated: number; settingsRestored: boolean }> {
+  options: RestoreOptions = {},
+): Promise<{
+  booksAdded: number;
+  booksUpdated: number;
+  settingsRestored: boolean;
+  fonts: BackupFont[];
+}> {
   await configureZip();
   const { BlobReader, ZipReader, Uint8ArrayWriter } = await import('@zip.js/zip.js');
 
@@ -464,9 +613,18 @@ export async function restoreFromBackupZip(
   const currentBooks = await appService.loadLibraryBooks();
 
   const currentBooksMap = new Map<string, Book>();
+  const liveByMeta = new Map<string, Book>();
   for (const book of currentBooks) {
     currentBooksMap.set(book.hash, book);
+    if (book.metaHash && !book.deletedAt) liveByMeta.set(`${book.metaHash}:${book.format}`, book);
   }
+  /**
+   * The book of this library a backed-up book is: the same file, or (a book imported again with
+   * another hash) the same title and author in the same format. Never added a second time.
+   */
+  const matchOf = (backup: Book): Book | undefined =>
+    currentBooksMap.get(backup.hash) ??
+    (backup.metaHash ? liveByMeta.get(`${backup.metaHash}:${backup.format}`) : undefined);
 
   // Collect orphan hash directories: in zip but not in library.json
   const backupHashes = new Set(backupBooks.map((b) => b.hash));
@@ -475,9 +633,56 @@ export async function restoreFromBackupZip(
     const slashIdx = entry.filename.indexOf('/');
     if (slashIdx < 0) continue;
     const dir = entry.filename.slice(0, slashIdx);
-    if (dir && !backupHashes.has(dir)) {
+    if (dir && dir !== FONTS_DIR && !backupHashes.has(dir)) {
       orphanHashes.add(dir);
     }
+  }
+
+  const ownConfigName = getActiveProfileId()
+    ? `config.${getActiveProfileId()}.json`
+    : 'config.json';
+  const readZipConfig = async (hash: string): Promise<Partial<BookConfig> | undefined> => {
+    const entry = fileEntries.find((e) => e.filename === `${hash}/${ownConfigName}`);
+    if (!entry) return undefined;
+    try {
+      return JSON.parse(new TextDecoder().decode(await entry.getData!(new Uint8ArrayWriter())));
+    } catch {
+      return undefined;
+    }
+  };
+  const readLocalConfig = async (hash: string): Promise<Partial<BookConfig>> => {
+    try {
+      return JSON.parse(
+        (await appService.readFile(`${hash}/${ownConfigName}`, 'Books', 'text')) as string,
+      );
+    } catch {
+      return {};
+    }
+  };
+
+  // Books the reader has already started, whose place the backup would change: ask first, once.
+  let place: PlaceChoice = 'furthest';
+  if (options.chooseProgress) {
+    const conflicts: ProgressConflict[] = [];
+    for (const backupBook of backupBooks) {
+      const existing = matchOf(backupBook);
+      if (!existing || existing.deletedAt) continue;
+      const mine = placeOf(await readLocalConfig(existing.hash), existing);
+      const theirs = placeOf(await readZipConfig(backupBook.hash), backupBook);
+      if (!hasStarted(mine) || !hasStarted(theirs)) continue;
+      const same =
+        (mine.location ?? '') === (theirs.location ?? '') &&
+        (mine.progress?.[0] ?? 0) === (theirs.progress?.[0] ?? 0);
+      if (!same) {
+        conflicts.push({
+          hash: existing.hash,
+          title: existing.title,
+          current: mine,
+          backup: theirs,
+        });
+      }
+    }
+    if (conflicts.length > 0) place = await options.chooseProgress(conflicts);
   }
 
   let booksAdded = 0;
@@ -489,35 +694,42 @@ export async function restoreFromBackupZip(
     const backupBook = backupBooks[i]!;
     onProgress?.(i + 1, total, backupBook.title);
 
-    const existingBook = currentBooksMap.get(backupBook.hash);
-    const bookDir = backupBook.hash;
+    const existingBook = matchOf(backupBook);
+    // The same book under the same hash: its files are replaced. Under another hash (matched by
+    // title and author) the library's own files stay, and only its place and notes are merged.
+    const sameFiles = !existingBook || existingBook.hash === backupBook.hash;
+    const zipDir = backupBook.hash;
+    const localDir = existingBook?.hash ?? backupBook.hash;
 
     // Get all file entries for this book's directory
     const bookFileEntries = fileEntries.filter(
-      (e) => e.filename.startsWith(`${bookDir}/`) && !isForeignProfileFile(e.filename),
+      (e) => e.filename.startsWith(`${zipDir}/`) && !isForeignProfileFile(e.filename),
     );
 
     if (existingBook) {
       // Update: override book file and cover, merge config
       for (const entry of bookFileEntries) {
+        const isConfig = CONFIG_FILE.test(entry.filename);
+        if (!sameFiles && !isConfig) continue;
         const data = await entry.getData!(new Uint8ArrayWriter());
+        const target = `${localDir}/${entry.filename.slice(zipDir.length + 1)}`;
 
-        if (CONFIG_FILE.test(entry.filename)) {
+        if (isConfig) {
           // Merge config
           let currentConfig: Partial<BookConfig> = {};
           try {
-            const str = (await appService.readFile(entry.filename, 'Books', 'text')) as string;
+            const str = (await appService.readFile(target, 'Books', 'text')) as string;
             currentConfig = JSON.parse(str);
           } catch {
             /* use empty config if current doesn't exist */
           }
 
           const backupConfig: Partial<BookConfig> = JSON.parse(new TextDecoder().decode(data));
-          const mergedConfig = mergeBookConfigs(currentConfig, backupConfig);
-          await appService.writeFile(entry.filename, 'Books', JSON.stringify(mergedConfig));
+          const mergedConfig = mergeBookConfigs(currentConfig, backupConfig, place);
+          await appService.writeFile(target, 'Books', JSON.stringify(mergedConfig));
         } else {
           // Override book file and cover image
-          await appService.writeFile(entry.filename, 'Books', data.buffer as ArrayBuffer);
+          await appService.writeFile(target, 'Books', data.buffer as ArrayBuffer);
         }
       }
 
@@ -525,13 +737,25 @@ export async function restoreFromBackupZip(
       // deleted locally but present in the backup is "revived" — collect it
       // so its download state and updatedAt can be fixed up after the loop.
       const wasRevived = !!existingBook.deletedAt && !backupBook.deletedAt;
-      Object.assign(existingBook, mergeBookMetadata(existingBook, backupBook));
+      const mine = { ...existingBook };
+      if (sameFiles) Object.assign(existingBook, mergeBookMetadata(existingBook, backupBook));
+      if (place === 'current') {
+        existingBook.progress = mine.progress;
+        existingBook.readingStatus = mine.readingStatus;
+        existingBook.readingStatusUpdatedAt = mine.readingStatusUpdatedAt;
+      } else if (place === 'backup') {
+        existingBook.progress = backupBook.progress;
+        existingBook.readingStatus = backupBook.readingStatus;
+        existingBook.readingStatusUpdatedAt = backupBook.readingStatusUpdatedAt;
+        // So the choice, not the older record, is what the next sync carries.
+        existingBook.updatedAt = Date.now();
+      }
       if (wasRevived) revivedBooks.push({ book: existingBook, backup: backupBook });
       booksUpdated++;
     } else {
       // Add new book: extract all files
-      if (!(await appService.exists(bookDir, 'Books'))) {
-        await appService.createDir(bookDir, 'Books');
+      if (!(await appService.exists(zipDir, 'Books'))) {
+        await appService.createDir(zipDir, 'Books');
       }
       for (const entry of bookFileEntries) {
         const data = await entry.getData!(new Uint8ArrayWriter());
@@ -539,6 +763,9 @@ export async function restoreFromBackupZip(
       }
       currentBooks.push(backupBook);
       currentBooksMap.set(backupBook.hash, backupBook);
+      if (backupBook.metaHash && !backupBook.deletedAt) {
+        liveByMeta.set(`${backupBook.metaHash}:${backupBook.format}`, backupBook);
+      }
       booksAdded++;
     }
   }
@@ -581,6 +808,9 @@ export async function restoreFromBackupZip(
     }
   }
 
+  // Fonts: the files go back where they were; the caller registers the fonts it gets back.
+  const fonts = await restoreFonts(appService, fileEntries);
+
   // Make revived books out-rank the cloud's deletion tombstone in the
   // next sync, without disturbing the library's "Updated" sort order.
   reviveRestoredBooks(revivedBooks);
@@ -600,6 +830,8 @@ export async function restoreFromBackupZip(
     try {
       const data = await settingsEntry.getData!(new Uint8ArrayWriter());
       const backupSettings: Partial<SystemSettings> = JSON.parse(new TextDecoder().decode(data));
+      // The fonts are registered from fonts.json (the font store owns that list).
+      delete backupSettings.customFonts;
       const currentSettings = await appService.loadSettings();
       await appService.saveSettings(mergeRestoredSettings(currentSettings, backupSettings));
       settingsRestored = true;
@@ -610,7 +842,7 @@ export async function restoreFromBackupZip(
 
   await reader.close();
 
-  return { booksAdded, booksUpdated, settingsRestored };
+  return { booksAdded, booksUpdated, settingsRestored, fonts };
 }
 
 /**

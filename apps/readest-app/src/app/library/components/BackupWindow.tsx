@@ -9,7 +9,16 @@ import {
 import { useEnv } from '@/context/EnvContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useFileSelector } from '@/hooks/useFileSelector';
-import { restoreFromBackupZip, saveBackupFile } from '@/services/backupService';
+import {
+  restoreFromBackupZip,
+  saveBackupFile,
+  type BackupFont,
+  type ProgressConflict,
+} from '@/services/backupService';
+import { useCustomFontStore } from '@/store/customFontStore';
+import { useSettingsStore } from '@/store/settingsStore';
+import { mountCustomFont } from '@/styles/fonts';
+import { queueReplicaBinaryUpload } from '@/services/sync/replicaBinaryUpload';
 import { useLibraryStore } from '@/store/libraryStore';
 import Dialog from '@/components/Dialog';
 
@@ -38,13 +47,19 @@ interface BackupResult {
   settingsRestored?: boolean;
 }
 
+/** Books the reader has started whose place the backup would change, waiting for an answer. */
+interface ProgressQuestion {
+  conflicts: ProgressConflict[];
+  answer: (choice: 'backup' | 'current') => void;
+}
+
 interface BackupWindowProps {
   onPullLibrary: (fullRefresh?: boolean, verbose?: boolean) => void;
 }
 
 export const BackupWindow: React.FC<BackupWindowProps> = ({ onPullLibrary }) => {
   const _ = useTranslation();
-  const { appService } = useEnv();
+  const { appService, envConfig } = useEnv();
   const { setLibrary } = useLibraryStore();
   const { selectFiles } = useFileSelector(appService, _);
   const [isOpen, setIsOpen] = useState(false);
@@ -53,6 +68,7 @@ export const BackupWindow: React.FC<BackupWindowProps> = ({ onPullLibrary }) => 
   const [errorMessage, setErrorMessage] = useState('');
   const [result, setResult] = useState<BackupResult | null>(null);
   const [includeCredentials, setIncludeCredentials] = useState(false);
+  const [question, setQuestion] = useState<ProgressQuestion | null>(null);
 
   const resetState = () => {
     setStatus('idle');
@@ -113,6 +129,36 @@ export const BackupWindow: React.FC<BackupWindowProps> = ({ onPullLibrary }) => 
     }
   };
 
+  // Fonts come back as files; the font store registers them (and shares them) as an import does.
+  const registerRestoredFonts = async (fonts: BackupFont[]) => {
+    if (!appService || fonts.length === 0) return;
+    const store = useCustomFontStore.getState();
+    for (const font of fonts) {
+      const known = store.fonts.some(
+        (f) =>
+          !f.deletedAt &&
+          (f.path === font.path || (!!font.contentId && f.contentId === font.contentId)),
+      );
+      if (known) continue;
+      const added = store.addFont(font.path, {
+        name: font.name,
+        family: font.family,
+        style: font.style,
+        weight: font.weight,
+        variable: font.variable,
+        contentId: font.contentId,
+        bundleDir: font.bundleDir,
+        byteSize: font.byteSize,
+      });
+      if (added && !added.error) {
+        const loaded = await store.loadFont(envConfig, added.id);
+        mountCustomFont(document, loaded);
+        void queueReplicaBinaryUpload('font', added, appService);
+      }
+    }
+    await store.saveCustomFonts(envConfig);
+  };
+
   const handleRestore = async () => {
     if (!appService) return;
 
@@ -133,13 +179,30 @@ export const BackupWindow: React.FC<BackupWindowProps> = ({ onPullLibrary }) => 
         ? result.files[0].file
         : await appService.openFile(result.files[0]!.path!, 'None');
 
-      const { booksAdded, booksUpdated, settingsRestored } = await restoreFromBackupZip(
+      const { booksAdded, booksUpdated, settingsRestored, fonts } = await restoreFromBackupZip(
         appService,
         zipFile,
         (current, total, currentFile) => {
           setProgress({ current, total, currentFile });
         },
+        {
+          // Books already started keep the reader's place unless they say the backup's wins.
+          chooseProgress: (conflicts) =>
+            new Promise((resolve) =>
+              setQuestion({
+                conflicts,
+                answer: (choice) => {
+                  setQuestion(null);
+                  resolve(choice);
+                },
+              }),
+            ),
+        },
       );
+      if (settingsRestored) {
+        useSettingsStore.getState().setSettings(await appService.loadSettings());
+      }
+      await registerRestoredFonts(fonts);
 
       const newLibrary = await appService.loadLibraryBooks();
       const booksCount = newLibrary.reduce((sum, book) => sum + (book.deletedAt ? 0 : 1), 0);
@@ -184,6 +247,43 @@ export const BackupWindow: React.FC<BackupWindowProps> = ({ onPullLibrary }) => 
     >
       {isOpen && (
         <div className='backup-content flex flex-col gap-6 px-6 py-4'>
+          {/* Which reading place to keep */}
+          {question && (
+            <div className='space-y-3'>
+              <h3 className='font-medium'>{_('Reading progress differs')}</h3>
+              <p className='text-base-content/70 text-sm'>
+                {_(
+                  '{{count}} books you have already started are at a different place in this backup. Which place do you want to keep?',
+                  { count: question.conflicts.length },
+                )}
+              </p>
+              <ul className='text-base-content/70 list-inside list-disc text-sm'>
+                {question.conflicts.slice(0, 5).map((conflict) => (
+                  <li key={conflict.hash} className='truncate'>
+                    {conflict.title}
+                  </li>
+                ))}
+                {question.conflicts.length > 5 && (
+                  <li>{_('and {{count}} more', { count: question.conflicts.length - 5 })}</li>
+                )}
+              </ul>
+              <div className='flex gap-3'>
+                <button
+                  className='btn btn-outline flex-1'
+                  onClick={() => question.answer('current')}
+                >
+                  {_('Keep my place')}
+                </button>
+                <button
+                  className='btn btn-primary flex-1'
+                  onClick={() => question.answer('backup')}
+                >
+                  {_("Use the backup's place")}
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Action Buttons */}
           {status === 'idle' && (
             <div className='space-y-3'>
@@ -220,7 +320,7 @@ export const BackupWindow: React.FC<BackupWindowProps> = ({ onPullLibrary }) => 
           )}
 
           {/* Progress */}
-          {isProcessing && (
+          {isProcessing && !question && (
             <div className='space-y-3'>
               <div className='flex items-center gap-2'>
                 <RiLoader2Line className='text-primary h-4 w-4 animate-spin' />
