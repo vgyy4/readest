@@ -562,7 +562,7 @@ export const SYSTEM_BOOK_SERIF_FONTS = [
   'Athelas',
 ];
 
-export const NON_FREE_FONTS = ['Georgia', 'Times New Roman', ...SYSTEM_BOOK_SERIF_FONTS];
+export const NON_FREE_FONTS = ['Georgia', 'Times New Roman'];
 
 export const CJK_SERIF_FONTS = [
   _('LXGW WenKai GB Screen'),
