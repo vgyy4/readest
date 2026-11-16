@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
+import { setActiveProfileId } from '@/libs/profiles/active';
 import {
+  findBackupLibraryEntry,
+  isForeignProfileFile,
   mergeBookConfigs,
   mergeBookMetadata,
   validateBackupStructure,
@@ -264,5 +267,44 @@ describe('mergeBookMetadata - extended', () => {
     const backup = makeBook({ deletedAt: 4000 });
     const result = mergeBookMetadata(current, backup);
     expect(result.deletedAt).toBe(4000);
+  });
+});
+
+describe('backups and profiles', () => {
+  const KID = '22222222-2222-2222-2222-222222222222';
+  const OTHER = '33333333-3333-3333-3333-333333333333';
+  afterEach(() => setActiveProfileId(null));
+
+  it("lets a profile restore the admin's backup (library.json), and its own", () => {
+    setActiveProfileId(KID);
+    expect(validateBackupStructure(['library.json', 'abc/book.epub'])).toBe(true);
+    expect(validateBackupStructure([`library.${KID}.json`, 'abc/book.epub'])).toBe(true);
+  });
+
+  it("lets the admin restore a profile's backup", () => {
+    expect(validateBackupStructure([`library.${KID}.json`, 'abc/book.epub'])).toBe(true);
+  });
+
+  it("prefers the active profile's own library, then library.json, then any profile's", () => {
+    setActiveProfileId(KID);
+    expect(findBackupLibraryEntry(['library.json', `library.${KID}.json`])).toBe(
+      `library.${KID}.json`,
+    );
+    expect(findBackupLibraryEntry([`library.${OTHER}.json`, 'library.json'])).toBe('library.json');
+    expect(findBackupLibraryEntry([`library.${OTHER}.json`])).toBe(`library.${OTHER}.json`);
+    expect(findBackupLibraryEntry(['library.json.bak', 'sub/library.json'])).toBeUndefined();
+  });
+
+  it("keeps only the active profile's own progress files", () => {
+    // The main profile keeps config.json; a profile config.<id>.json.
+    expect(isForeignProfileFile('abc/config.json')).toBe(false);
+    expect(isForeignProfileFile(`abc/config.${KID}.json`)).toBe(true);
+    setActiveProfileId(KID);
+    expect(isForeignProfileFile('abc/config.json')).toBe(true);
+    expect(isForeignProfileFile(`abc/config.${KID}.json`)).toBe(false);
+    expect(isForeignProfileFile(`abc/config.${OTHER}.json`)).toBe(true);
+    // Book files and covers are shared.
+    expect(isForeignProfileFile('abc/cover.png')).toBe(false);
+    expect(isForeignProfileFile('abc/Book.epub')).toBe(false);
   });
 });

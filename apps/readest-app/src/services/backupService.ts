@@ -4,6 +4,7 @@ import { EXTS } from '@/libs/document';
 import { isTauriAppPlatform } from '@/services/environment';
 import { Book, BookConfig, BookNote } from '@/types/book';
 import { SystemSettings } from '@/types/settings';
+import { getActiveProfileId } from '@/libs/profiles/active';
 import { getLibraryFilename } from '@/utils/book';
 import { stampBookConfigSchema } from '@/utils/serializer';
 import { configureZip } from '@/utils/zip';
@@ -269,8 +270,38 @@ const LIBRARY_META_FILES = new Set([
   'library.db-wal',
 ]);
 
+/** A profile's own library files (`library.<id>.json`, `library_backup.<id>.json`). */
+const PROFILE_LIBRARY_FILE = /^library(_backup)?\.[0-9a-f-]{36}\.json(\.bak)?$/i;
+const PROFILE_LIBRARY_ENTRY = /^library\.[0-9a-f-]{36}\.json$/i;
+const CONFIG_FILE = /^[^/]+\/config(\.[0-9a-f-]{36})?\.json$/i;
+
 function isLibraryMetaFile(path: string): boolean {
-  return LIBRARY_META_FILES.has(path);
+  return LIBRARY_META_FILES.has(path) || PROFILE_LIBRARY_FILE.test(path);
+}
+
+/**
+ * A per-book progress file of someone else: the main profile keeps `config.json`, a profile
+ * `config.<id>.json`. A backup holds, and restores, only the active profile's own; book files and
+ * covers are shared.
+ */
+export function isForeignProfileFile(path: string): boolean {
+  const name = path.replace(/\\/g, '/');
+  if (!CONFIG_FILE.test(name)) return false;
+  const profileId = getActiveProfileId();
+  const own = profileId ? `config.${profileId}.json` : 'config.json';
+  return name.slice(name.indexOf('/') + 1) !== own;
+}
+
+/**
+ * The library list inside a backup: the active profile's own, else the main profile's
+ * `library.json`, else a profile's (so a profile can restore the admin's backup and the admin a
+ * profile's).
+ */
+export function findBackupLibraryEntry(entryNames: string[]): string | undefined {
+  const own = getLibraryFilename();
+  if (entryNames.includes(own)) return own;
+  if (entryNames.includes('library.json')) return 'library.json';
+  return entryNames.find((name) => PROFILE_LIBRARY_ENTRY.test(name));
 }
 
 type ProgressCallback = (current: number, total: number, filename: string) => void;
@@ -307,7 +338,9 @@ export async function addBackupEntriesToZip(
   // Add all book files, skipping library metadata files
   const booksDir = await appService.resolveFilePath('', 'Books');
   const files = await appService.readDirectory(booksDir, 'None');
-  const bookFiles = files.filter((f) => f.size > 0 && !isLibraryMetaFile(f.path));
+  const bookFiles = files.filter(
+    (f) => f.size > 0 && !isLibraryMetaFile(f.path) && !isForeignProfileFile(f.path),
+  );
   const total = bookFiles.length;
 
   for (let i = 0; i < bookFiles.length; i++) {
@@ -385,7 +418,7 @@ export async function createBackupZipToFile(
  * Must contain library.json at the root level.
  */
 export function validateBackupStructure(entryNames: string[]): boolean {
-  return entryNames.some((name) => name === getLibraryFilename());
+  return findBackupLibraryEntry(entryNames) !== undefined;
 }
 
 /**
@@ -418,7 +451,8 @@ export async function restoreFromBackupZip(
   const fileEntries = entries.filter((e) => !e.directory);
 
   // Read backup library.json
-  const libraryEntry = fileEntries.find((e) => e.filename === getLibraryFilename());
+  const libraryName = findBackupLibraryEntry(entryNames);
+  const libraryEntry = fileEntries.find((e) => e.filename === libraryName);
   if (!libraryEntry) {
     await reader.close();
     throw new Error('Cannot read library.json from backup');
@@ -459,14 +493,16 @@ export async function restoreFromBackupZip(
     const bookDir = backupBook.hash;
 
     // Get all file entries for this book's directory
-    const bookFileEntries = fileEntries.filter((e) => e.filename.startsWith(`${bookDir}/`));
+    const bookFileEntries = fileEntries.filter(
+      (e) => e.filename.startsWith(`${bookDir}/`) && !isForeignProfileFile(e.filename),
+    );
 
     if (existingBook) {
       // Update: override book file and cover, merge config
       for (const entry of bookFileEntries) {
         const data = await entry.getData!(new Uint8ArrayWriter());
 
-        if (entry.filename.endsWith('/config.json')) {
+        if (CONFIG_FILE.test(entry.filename)) {
           // Merge config
           let currentConfig: Partial<BookConfig> = {};
           try {
@@ -513,7 +549,9 @@ export async function restoreFromBackupZip(
     orphanIdx++;
     if (currentBooksMap.has(hash)) continue;
     onProgress?.(backupBooks.length + orphanIdx, total, hash);
-    const orphanEntries = fileEntries.filter((e) => e.filename.startsWith(`${hash}/`));
+    const orphanEntries = fileEntries.filter(
+      (e) => e.filename.startsWith(`${hash}/`) && !isForeignProfileFile(e.filename),
+    );
     // Find the book file by extension
     const bookEntry = orphanEntries.find((e) => {
       const ext = e.filename.split('.').pop()?.toLowerCase() ?? '';
@@ -554,7 +592,10 @@ export async function restoreFromBackupZip(
   // fields are absent from the snapshot, so the current device keeps
   // its own values for those after the deep merge.
   let settingsRestored = false;
-  const settingsEntry = fileEntries.find((e) => e.filename === SETTINGS_BACKUP_FILENAME);
+  // A profile leaves the settings alone: they are the account's, not the profile's.
+  const settingsEntry = getActiveProfileId()
+    ? undefined
+    : fileEntries.find((e) => e.filename === SETTINGS_BACKUP_FILENAME);
   if (settingsEntry) {
     try {
       const data = await settingsEntry.getData!(new Uint8ArrayWriter());
