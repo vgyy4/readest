@@ -31,9 +31,13 @@ const allowedHosts = () =>
 
 /** The service-token headers for a request to `url`, or none if it is not our server. */
 export const getAccessHeaders = (url: string): Record<string, string> => {
-  const id = runtime()?.cfAccessClientId ?? process.env['NEXT_PUBLIC_CF_ACCESS_CLIENT_ID'];
-  const secret =
-    runtime()?.cfAccessClientSecret ?? process.env['NEXT_PUBLIC_CF_ACCESS_CLIENT_SECRET'];
+  // Pasted values often carry a space or a line break, which a header cannot hold: Safari then
+  // refuses the whole request.
+  const clean = (value: string | undefined) => value?.replace(/\s+/g, '');
+  const id = clean(runtime()?.cfAccessClientId ?? process.env['NEXT_PUBLIC_CF_ACCESS_CLIENT_ID']);
+  const secret = clean(
+    runtime()?.cfAccessClientSecret ?? process.env['NEXT_PUBLIC_CF_ACCESS_CLIENT_SECRET'],
+  );
   if (!id || !secret) return {};
   const host = hostOf(url);
   if (!host || !allowedHosts().includes(host)) return {};

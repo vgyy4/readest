@@ -1,5 +1,5 @@
 import { getAPIBaseUrl } from '@/services/environment';
-import { fetchWithAuth } from '@/utils/fetch';
+import { fetchWithAuth, readJson } from '@/utils/fetch';
 import { getActiveProfileId, setActiveProfileId } from './active';
 import {
   getCachedProfiles,
@@ -28,14 +28,14 @@ const json = (method: string, body: unknown, pin?: string): RequestInit => ({
 
 export const fetchProfiles = async (): Promise<ProfilesState> => {
   const response = await fetchWithAuth(endpoint(''), { method: 'GET' });
-  const state = (await response.json()) as ProfilesState;
+  const state = await readJson<ProfilesState>(response);
   setCachedProfiles(state);
   forgetPinsOfProfilesWithoutPin(state);
   return state;
 };
 
 export const createProfile = async (name: string, pin?: string): Promise<ProfileInfo> =>
-  (await (await fetchWithAuth(endpoint(''), json('POST', { name }, pin))).json()) as ProfileInfo;
+  readJson<ProfileInfo>(await fetchWithAuth(endpoint(''), json('POST', { name }, pin)));
 
 export const renameProfile = async (id: string, name: string, pin?: string) => {
   await fetchWithAuth(endpoint(''), json('PATCH', { id, name }, pin));
@@ -53,7 +53,7 @@ export const fetchProfileBooks = async (profileId: string, pin?: string): Promis
     `${endpoint('/books')}?profileId=${encodeURIComponent(profileId)}`,
     { method: 'GET', headers: pinHeaders(pin) },
   );
-  return ((await response.json()) as { bookHashes: string[] }).bookHashes;
+  return (await readJson<{ bookHashes: string[] }>(response)).bookHashes;
 };
 
 /** The server answers "Book not found" for a book it has not received yet. */
@@ -89,7 +89,7 @@ export const fetchBookAccess = async (bookHash: string, pin?: string): Promise<B
     `${endpoint('/book-access')}?bookHash=${encodeURIComponent(bookHash)}`,
     { method: 'GET', headers: pinHeaders(pin) },
   );
-  const body = (await response.json()) as Partial<BookAccess>;
+  const body = await readJson<Partial<BookAccess>>(response);
   return { profileIds: body.profileIds ?? [], removedProfileIds: body.removedProfileIds ?? [] };
 };
 

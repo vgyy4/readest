@@ -8,7 +8,7 @@ vi.mock('@/utils/access', () => ({
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
-import { fetchWithTimeout, fetchWithAuth } from '@/utils/fetch';
+import { fetchWithTimeout, fetchWithAuth, readJson } from '@/utils/fetch';
 import { getAccessToken } from '@/utils/access';
 
 describe('fetchWithTimeout', () => {
@@ -193,5 +193,40 @@ describe('fetchWithAuth', () => {
     await expect(fetchWithAuth('https://api.example.com', { method: 'GET' })).rejects.toThrow(
       'Request failed',
     );
+  });
+
+  // Safari words "this is not JSON" as "The string did not match the expected pattern.", which
+  // told nobody anything. A page where data was expected now says what it was.
+  it('says so when the server refuses with a web page instead of an error message', async () => {
+    vi.mocked(getAccessToken).mockResolvedValueOnce('token');
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      statusText: 'Forbidden',
+      json: async () => {
+        throw new SyntaxError('The string did not match the expected pattern.');
+      },
+    });
+
+    await expect(fetchWithAuth('https://api.example.com', { method: 'GET' })).rejects.toThrow(
+      /web page instead of data \(HTTP 403\).*Cloudflare Access/s,
+    );
+  });
+});
+
+describe('readJson', () => {
+  it('returns the data', async () => {
+    const response = { status: 200, json: async () => ({ a: 1 }) } as unknown as Response;
+    expect(await readJson<{ a: number }>(response)).toEqual({ a: 1 });
+  });
+
+  it('says what happened when the answer is a page, not data', async () => {
+    const response = {
+      status: 200,
+      json: async () => {
+        throw new SyntaxError('The string did not match the expected pattern.');
+      },
+    } as unknown as Response;
+    await expect(readJson(response)).rejects.toThrow(/web page instead of data \(HTTP 200\)/);
   });
 });
