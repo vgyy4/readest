@@ -92,6 +92,15 @@ export const deleteObject = async (fileKey: string, bucketName?: string) => {
   }
 };
 
+/** SHA-256 and size of a stored object; null where the storage cannot be read as a stream (R2). */
+export const sha256OfObject = async (
+  fileKey: string,
+  bucketName?: string,
+): Promise<{ sha256: string; size: number } | null> => {
+  if (getStorageType() === 'r2') return null;
+  return s3Storage.sha256Object(bucketName || process.env['S3_BUCKET_NAME'] || '', fileKey);
+};
+
 // Returns true if the object exists in storage. Used to verify uploads completed
 // before treating a `files` row as shareable.
 export const objectExists = async (fileKey: string, bucketName?: string): Promise<boolean> => {

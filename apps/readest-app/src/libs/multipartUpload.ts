@@ -13,6 +13,8 @@ export interface MultipartDeps {
   /** Send one part; `onBytes` reports how many of its bytes have gone so far. */
   putPart: (part: PartInfo, onBytes: (loaded: number, speed: number) => void) => Promise<void>;
   sleep?: (ms: number) => Promise<void>;
+  /** More to say to the server when the upload starts (the file's SHA-256). */
+  startExtras?: Record<string, unknown>;
   /**
    * Remove the server's record of `fileName`. Used when an older server plans a new upload from
    * the size recorded by an earlier, abandoned attempt: with that record gone it plans from the
@@ -80,11 +82,11 @@ export const uploadInParts = async (
   fileSize: number,
   bookHash: string | undefined,
   onProgress: ((progress: ProgressPayload) => void) | undefined,
-  { request, putPart, sleep = defaultSleep, discardStale }: MultipartDeps,
+  { request, putPart, sleep = defaultSleep, discardStale, startExtras }: MultipartDeps,
 ): Promise<void> => {
   const start = async () => {
     try {
-      return await request({ action: 'start', fileName, fileSize, bookHash });
+      return await request({ action: 'start', fileName, fileSize, bookHash, ...startExtras });
     } catch (error) {
       if (error instanceof Error && error.message === 'Multipart not supported') {
         throw new MultipartUnsupported();

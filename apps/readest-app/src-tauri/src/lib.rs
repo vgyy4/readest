@@ -28,6 +28,7 @@ mod dir_scanner;
 mod discord_rpc;
 mod download_parts;
 mod epub_parser;
+mod file_hash;
 mod folder_watch;
 #[cfg(target_os = "macos")]
 mod macos;
@@ -53,7 +54,7 @@ use tauri_plugin_native_bridge::{NativeBridgeExt, OpenExternalUrlRequest};
 use tauri_plugin_oauth::start;
 #[cfg(not(target_os = "android"))]
 use tauri_plugin_opener::OpenerExt;
-use transfer_file::{download_file, upload_file};
+use transfer_file::{download_file, hash_file, upload_file};
 
 #[cfg(any(desktop, target_os = "ios"))]
 fn allow_file_in_scopes(app: &AppHandle, files: Vec<PathBuf>) {
@@ -409,6 +410,7 @@ pub fn run() {
             start_server,
             download_file,
             upload_file,
+            hash_file,
             media_server::serve_media_file,
             network::network_kind,
             folder_watch::watch_folders,

@@ -18,6 +18,7 @@ import {
   supportsMultipart,
 } from '@/utils/object';
 import { planParts } from '@/libs/multipart';
+import { parseSha256, recordExpectedChecksum } from '@/libs/storageChecksum';
 
 // A big upload on a slow link can take hours.
 const PART_URL_TTL_SECONDS = 6 * 60 * 60;
@@ -94,6 +95,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (resizeError) return res.status(500).json({ error: resizeError.message });
       }
       const size = fileSize;
+      // The file's SHA-256, to check the stored copy and later downloads against (see checksum.ts).
+      await recordExpectedChecksum(
+        supabase,
+        storageOwnerId,
+        fileKey,
+        parseSha256(req.body?.sha256),
+      );
       const newUploadId = await createMultipartUpload(fileKey);
       const parts = await Promise.all(
         planParts(size).map(async (part) => ({

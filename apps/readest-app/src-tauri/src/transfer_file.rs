@@ -286,6 +286,13 @@ pub async fn download_file(
     Ok(resp_headers)
 }
 
+/// The SHA-256 of a file on disk (64 lowercase hex characters), to check a transfer against.
+#[command]
+pub async fn hash_file(app: AppHandle, file_path: &str) -> Result<String> {
+    ensure_path_allowed(&app, file_path)?;
+    Ok(crate::file_hash::sha256_hex(file_path).await?)
+}
+
 /// Which bytes of a `total`-byte file to send: from `offset` for `length` (default: to the
 /// end). Lets a big file go up in parts, each its own request, which is how an audiobook gets
 /// past a proxy that caps a single request (Cloudflare: 100 MB).

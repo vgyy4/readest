@@ -12,6 +12,7 @@ import {
   STORAGE_QUOTA_GRACE_BYTES,
 } from '@/utils/access';
 import { getDownloadSignedUrl, getUploadSignedUrl, isSafeObjectKeyName } from '@/utils/object';
+import { parseSha256, recordExpectedChecksum } from '@/libs/storageChecksum';
 import {
   READEST_PUBLIC_ASSETS_BASE_URL,
   READEST_PUBLIC_STORAGE_BASE_URL,
@@ -38,6 +39,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const { fileName, fileSize, bookHash, replicaKind, replicaId, temp = false, media } = req.body;
+  // The SHA-256 of the file being sent, recorded so what arrives can be checked against it.
+  const sha256 = parseSha256(req.body.sha256);
 
   // A profile has no storage of its own: its books are stored once, in the account's, so what it
   // adds is also there for the admin. It may upload nothing but the files of a book and the fonts
@@ -163,6 +166,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       console.log('Inserted record:', inserted);
       if (insertError) return res.status(500).json({ error: insertError.message });
     }
+
+    // The file's SHA-256 is recorded now, so that when it has arrived the stored copy can be
+    // checked against it (see checksum.ts), and a later download against the same.
+    await recordExpectedChecksum(supabase, storageOwnerId, fileKey, sha256);
 
     try {
       const uploadUrl = await getUploadSignedUrl(fileKey, objSize, 1800);

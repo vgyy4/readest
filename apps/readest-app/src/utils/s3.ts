@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { S3Client } from '@aws-sdk/client-s3';
 import {
   GetObjectCommand,
@@ -185,6 +186,21 @@ export const s3Storage = {
     });
 
     return await s3Storage.getClient().send(deleteCommand);
+  },
+
+  /** The SHA-256 and size of a stored object, read as a stream (the object is never held whole). */
+  sha256Object: async (bucketName: string, fileKey: string) => {
+    const { Body } = await s3Storage
+      .getClient()
+      .send(new GetObjectCommand({ Bucket: bucketName, Key: fileKey }));
+    if (!Body) throw new Error('The storage returned no data');
+    const hash = createHash('sha256');
+    let size = 0;
+    for await (const chunk of Body as AsyncIterable<Uint8Array>) {
+      hash.update(chunk);
+      size += chunk.length;
+    }
+    return { sha256: hash.digest('hex'), size };
   },
 
   headObject: async (bucketName: string, fileKey: string) => {

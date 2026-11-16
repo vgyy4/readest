@@ -4,6 +4,7 @@ import { createSupabaseAdminClient } from '@/utils/supabase';
 import { corsAllMethods, runMiddleware } from '@/utils/cors';
 import { getDownloadSignedUrl } from '@/utils/object';
 import { validateUserAndToken } from '@/utils/access';
+import { parseSha256 } from '@/libs/storageChecksum';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   await runMiddleware(req, res, corsAllMethods);
@@ -38,7 +39,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: 'Missing or invalid fileKey' });
       }
 
-      const downloadUrlsMap = await processFileKeys(
+      const { urls: downloadUrlsMap, sha256s } = await processFileKeys(
         [fileKey],
         user.id,
         isProfile ? ownerId : undefined,
@@ -49,7 +50,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(404).json({ error: 'File not found' });
       }
 
-      return res.status(200).json({ downloadUrl });
+      // `sha256`: what the file was when it was uploaded, for the app to check what it received.
+      return res.status(200).json({ downloadUrl, sha256: sha256s[fileKey] ?? null });
     }
 
     if (req.method === 'POST') {
@@ -67,13 +69,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: 'All fileKeys must be strings' });
       }
 
-      const downloadUrls = await processFileKeys(
+      const { urls: downloadUrls, sha256s } = await processFileKeys(
         fileKeys,
         user.id,
         isProfile ? ownerId : undefined,
       );
 
-      return res.status(200).json({ downloadUrls });
+      return res.status(200).json({ downloadUrls, sha256s });
     }
   } catch (error) {
     console.error(error);
@@ -90,9 +92,14 @@ async function processFileKeys(
   fileKeys: string[],
   userId: string,
   ownerId?: string,
-): Promise<Record<string, string | undefined>> {
+): Promise<{
+  urls: Record<string, string | undefined>;
+  sha256s: Record<string, string | undefined>;
+}> {
   const supabase = createSupabaseAdminClient();
 
+  // The recorded SHA-256 comes in a query of its own: a database not updated yet has no such
+  // column, and downloads must not stop for that.
   const { data: fileRecords, error: fileError } = await supabase
     .from('files')
     .select('user_id, file_key, book_hash, replica_kind')
@@ -102,7 +109,7 @@ async function processFileKeys(
 
   if (fileError) {
     console.error('Error querying files:', fileError);
-    return Object.fromEntries(fileKeys.map((key) => [key, undefined]));
+    return { urls: Object.fromEntries(fileKeys.map((key) => [key, undefined])), sha256s: {} };
   }
 
   const fileRecordMap = new Map((fileRecords || []).map((record) => [record.file_key, record]));
@@ -198,5 +205,31 @@ async function processFileKeys(
     }
   });
 
-  return downloadUrls;
+  // What each file was when it was uploaded (null for one uploaded before it was recorded).
+  const sha256s: Record<string, string | undefined> = {};
+  try {
+    const owner = ownerId ?? userId;
+    const stored = fileKeys
+      .filter((key) => downloadUrls[key])
+      .map((key) => fileRecordMap.get(key)?.file_key)
+      .filter((key): key is string => !!key);
+    if (stored.length > 0) {
+      const { data, error } = await supabase
+        .from('files')
+        .select('file_key, sha256')
+        .eq('user_id', owner)
+        .in('file_key', stored);
+      if (!error) {
+        for (const key of fileKeys) {
+          const recorded = fileRecordMap.get(key)?.file_key;
+          const found = parseSha256(data?.find((row) => row.file_key === recorded)?.sha256);
+          if (found) sha256s[key] = found;
+        }
+      }
+    }
+  } catch (error) {
+    console.warn('Could not read the recorded checksums:', error);
+  }
+
+  return { urls: downloadUrls, sha256s };
 }
