@@ -57,4 +57,10 @@ jobs:
           printf %s "readest" | gh secret set ANDROID_KEY_ALIAS --repo "$REPO"
           gh secret set ANDROID_KEY_BASE64 --repo "$REPO" < "$dir/key.b64"
           rm -rf "$dir"
-          echo "The signing key is stored. Delete the SECRETS_PAT token and secret now."
+          echo "The signing key is stored."
+
+      # The token's job is done: drop the secret that holds it, so nothing that can write secrets
+      # stays in the repository. (The token itself expires on its own; it can also be revoked in
+      # your GitHub developer settings.)
+      - name: Remove the token secret
+        run: gh secret delete SECRETS_PAT --repo "$REPO"
