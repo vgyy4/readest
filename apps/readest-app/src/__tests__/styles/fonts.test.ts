@@ -346,8 +346,11 @@ describe('mountAdditionalFonts', () => {
   it('should not mount CJK fonts when isCJK is false', async () => {
     await mountAdditionalFonts(document, false);
 
+    // Only the fonts bundled with the app, no CJK faces.
     const styles = document.head.querySelectorAll('style');
-    expect(styles.length).toBe(0);
+    expect(styles.length).toBe(1);
+    expect(styles[0]!.id).toBe('readest-book-fonts');
+    expect(styles[0]!.textContent).not.toContain('FangSong');
 
     const links = document.head.querySelectorAll('link');
     const hrefs = Array.from(links).map((l) => l.getAttribute('href') || '');

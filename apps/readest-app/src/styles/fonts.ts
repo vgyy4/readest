@@ -124,7 +124,7 @@ export const mountAdditionalFonts = async (document: Document, isCJK = false) =>
   // address, so they are addressed from the app's own origin.
   const origin =
     typeof location !== 'undefined' && location.origin !== 'null' ? location.origin : '';
-  let fontFaces = getBookFontFaces(origin);
+  let fontFaces = '';
 
   if (mountCJKFonts) {
     fontFaces = getAdditionalCJKFontFaces();
@@ -136,6 +136,10 @@ export const mountAdditionalFonts = async (document: Document, isCJK = false) =>
     style.textContent = fontFaces;
     document.head.appendChild(style);
   }
+  const bundled = document.createElement('style');
+  bundled.id = 'readest-book-fonts';
+  bundled.textContent = getBookFontFaces(origin);
+  document.head.appendChild(bundled);
 
   const parser = new DOMParser();
   const linksDocument = parser.parseFromString(links, 'text/html');
