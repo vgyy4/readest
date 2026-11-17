@@ -1705,6 +1705,45 @@ describe('CapturedPageTurn (browser)', () => {
         flip.dispose();
       });
 
+      it('never reuses a page kept in one-page view in two-page view, or the other way round', async () => {
+        const pages = ['A', 'B', 'C'];
+        let at = 0;
+        let columns = 1;
+        navigate.mockImplementation(async (forward: boolean) => {
+          at = Math.min(pages.length - 1, Math.max(0, at + (forward ? 1 : -1)));
+        });
+        const rasterizeIncoming = vi.fn(async () => picture());
+        // The same page key and the same screen size in both views: only the page count differs.
+        const flip = new CapturedPageTurn(
+          flipHost({
+            getColumnCount: () => columns,
+            getPageKey: () => pages[at]!,
+            rasterizeIncoming,
+          }),
+          { duration: 20 },
+        );
+        await flip.turn(true, false); // one page: A to B, A is kept
+        columns = 2; // the window now shows two pages side by side
+        await flip.turn(false, false); // two pages, back to A: the kept one-page picture is not used
+        expect(rasterizeIncoming).toHaveBeenCalledTimes(1);
+        // (Going forward in one-page view draws nothing, so the only call is the two-page back turn.)
+        columns = 1;
+        await flip.turn(true, false); // one page: A to B again, A kept; B kept earlier was two-page
+        columns = 2;
+        await flip.turn(false, false);
+        expect(rasterizeIncoming).toHaveBeenCalledTimes(2);
+        flip.dispose();
+      });
+
+      it('reuses it in two-page view, cutting out the half the sheet needs', async () => {
+        const { flip, rasterizeIncoming } = book();
+        await flip.turn(true, false);
+        await flip.turn(false, false);
+        // Nothing was drawn for the way back: the kept two-page picture gave the right half.
+        expect(rasterizeIncoming).toHaveBeenCalledTimes(1);
+        flip.dispose();
+      });
+
       it('lets it go after half a minute', async () => {
         vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
         try {

@@ -184,6 +184,7 @@ interface ActiveTurn {
   leftKey: string | null;
   rect: CaptureRect;
   dpr: number;
+  columns: number;
 }
 
 /** A page that was just turned away from, kept for a short while for a turn straight back to it. */
@@ -192,6 +193,8 @@ interface RecentPage {
   key: string;
   rect: CaptureRect;
   dpr: number;
+  /** How many pages the picture shows side by side (one page and a spread are different pictures). */
+  columns: number;
   timer: ReturnType<typeof setTimeout>;
 }
 
@@ -760,6 +763,7 @@ export class CapturedPageTurn {
       leftKey: this.#host.getPageKey?.() ?? null,
       rect: captureRect,
       dpr,
+      columns: this.#columns(),
     };
     // The picture belongs to the turn now.
     surface.picture = null;
@@ -874,6 +878,7 @@ export class CapturedPageTurn {
       key: active.leftKey,
       rect: active.rect,
       dpr: active.dpr,
+      columns: active.columns,
       timer,
     };
   }
@@ -884,6 +889,9 @@ export class CapturedPageTurn {
     if (!recent) return null;
     const key = this.#host.getPageKey?.() ?? null;
     if (!key || key !== recent.key || recent.dpr !== active.dpr) return null;
+    // One page and two pages side by side are different pictures of the same place in the book:
+    // a page kept in one view is never used in the other.
+    if (recent.columns !== this.#columns()) return null;
     if (!sameCaptureRect(recent.rect, active.rect)) return null;
     return recent.picture;
   }
@@ -919,9 +927,14 @@ export class CapturedPageTurn {
     }
   }
 
+  /** How many pages are on screen side by side. */
+  #columns() {
+    return this.#host.getColumnCount?.() ?? 1;
+  }
+
   /** Whether two pages are on screen side by side. */
   #spread() {
-    return (this.#host.getColumnCount?.() ?? 1) > 1;
+    return this.#columns() > 1;
   }
 
   /** Whether this turn should flip its page rather than curl it. */

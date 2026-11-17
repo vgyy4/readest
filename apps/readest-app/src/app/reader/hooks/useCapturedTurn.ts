@@ -421,7 +421,8 @@ export const useCapturedTurn = (bookKey: string, viewRef: React.RefObject<Foliat
         if (!cfi) return null;
         const theme = useThemeStore.getState().themeCode;
         // The page, and everything that changes how it looks (text, margins, theme, columns).
-        return `${cfi}|${theme.bg}|${theme.fg}|${JSON.stringify(getViewSettings(bookKey))}`;
+        const columns = view.renderer.columnCount ?? 1;
+        return `${columns}|${cfi}|${theme.bg}|${theme.fg}|${JSON.stringify(getViewSettings(bookKey))}`;
       },
       rasterizeIncoming: async (isCancelled, part) => {
         const cell = document.getElementById(`gridcell-${bookKey}`);
