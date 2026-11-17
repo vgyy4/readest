@@ -349,6 +349,27 @@ export const rasterizeView = (
   return step.value;
 };
 
+/**
+ * The part of a cell-sized paper picture that lies under `part` of the cell, as something
+ * `drawImage` can draw over a canvas of that part's size.
+ */
+export const cropPaper = (
+  paper: CanvasImageSource,
+  width: number,
+  height: number,
+  part: 'left' | 'right' | 'all',
+): CanvasImageSource => {
+  if (part === 'all') return paper;
+  const half = Math.round(width / 2);
+  const crop = document.createElement('canvas');
+  crop.width = half;
+  crop.height = Math.round(height);
+  crop
+    .getContext('2d')
+    ?.drawImage(paper, part === 'right' ? half : 0, 0, half, crop.height, 0, 0, half, crop.height);
+  return crop;
+};
+
 const SLICE_MS = 7;
 
 /**

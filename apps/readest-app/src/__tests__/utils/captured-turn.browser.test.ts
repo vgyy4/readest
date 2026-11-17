@@ -1624,6 +1624,36 @@ describe('CapturedPageTurn (browser)', () => {
       failing.dispose();
     });
 
+    it('asks for just the half beside the spine in two-page view, and for all of it going back in one page', async () => {
+      const rasterizeIncoming = vi.fn(async () => picture());
+      const forward = new CapturedPageTurn(
+        flipHost({ getColumnCount: () => 2, rasterizeIncoming }),
+      );
+      await forward.beginDrag(true, false);
+      expect(rasterizeIncoming).toHaveBeenLastCalledWith(expect.any(Function), 'left');
+      forward.dispose();
+      const back = new CapturedPageTurn(flipHost({ getColumnCount: () => 2, rasterizeIncoming }));
+      await back.beginDrag(false, false);
+      expect(rasterizeIncoming).toHaveBeenLastCalledWith(expect.any(Function), 'right');
+      back.dispose();
+      const rtl = new CapturedPageTurn(flipHost({ getColumnCount: () => 2, rasterizeIncoming }));
+      await rtl.beginDrag(true, true);
+      expect(rasterizeIncoming).toHaveBeenLastCalledWith(expect.any(Function), 'right');
+      rtl.dispose();
+      const single = new CapturedPageTurn(flipHost({ getColumnCount: () => 1, rasterizeIncoming }));
+      await single.beginDrag(false, false);
+      expect(rasterizeIncoming).toHaveBeenLastCalledWith(expect.any(Function), 'all');
+      single.dispose();
+    });
+
+    it('draws nothing going forward in one-page view: the back of the page is never seen', async () => {
+      const rasterizeIncoming = vi.fn(async () => picture());
+      const single = new CapturedPageTurn(flipHost({ getColumnCount: () => 1, rasterizeIncoming }));
+      expect(await single.beginDrag(true, false)).toBe(true);
+      expect(rasterizeIncoming).not.toHaveBeenCalled();
+      single.dispose();
+    });
+
     it('is not asked for the other styles', async () => {
       const rasterizeIncoming = vi.fn(async () => picture());
       const curl = new CapturedPageTurn(flipHost({ isPageFlip: () => false, rasterizeIncoming }));

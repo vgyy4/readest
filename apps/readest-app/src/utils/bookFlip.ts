@@ -43,6 +43,7 @@ uniform sampler2D uTex;      // the picture on the front of the sheet
 uniform sampler2D uBackTex;  // the picture on its back (the page being turned to)
 uniform sampler2D uPaper;    // plain paper, for a back without a picture
 uniform float uHasBack;      // 1: the back has a picture of its own
+uniform vec2 uBackRegion;    // the part of the page that picture covers: start and width (0..1)
 uniform float uSolid;        // 1: draw black with the vertex alpha (shadows)
 varying vec2 vUv;
 varying vec3 vInfo;
@@ -57,7 +58,7 @@ void main() {
     rgb = page.rgb * vInfo.x;
   } else if (uHasBack > 0.5) {
     // The back of the sheet is its own page, seen from behind: the same spot, mirrored across.
-    rgb = texture2D(uBackTex, vec2(1.0 - vUv.x, vUv.y)).rgb * vInfo.x;
+    rgb = texture2D(uBackTex, vec2(((1.0 - vUv.x) - uBackRegion.x) / uBackRegion.y, vUv.y)).rgb * vInfo.x;
   } else {
     // No picture of the other page: the paper, with the text showing faintly through.
     vec3 paper = texture2D(uPaper, vUv).rgb;
@@ -78,6 +79,12 @@ const SHADOWS: [number, number][] = [
   [0.62, 0.035],
   [0.8, 0.03],
   [1.0, 0.02],
+];
+/** The same shadow in three passes, for devices in lite mode. */
+const LITE_SHADOWS: [number, number][] = [
+  [0.3, 0.09],
+  [0.55, 0.08],
+  [0.95, 0.06],
 ];
 const GUTTER_ALPHA = 0.14;
 const GUTTER_WIDTH = 0.045;
@@ -101,6 +108,8 @@ export class BookFlipRenderer {
   private uTex: WebGLUniformLocation | null = null;
   private uBackTex: WebGLUniformLocation | null = null;
   private uHasBack: WebGLUniformLocation | null = null;
+  private uBackRegion: WebGLUniformLocation | null = null;
+  private incomingRegion: [number, number] = [0, 1];
   private data = new Float32Array((SEGMENTS + 1) * 2 * FLOATS);
 
   constructor(options: { preserveDrawingBuffer?: boolean } = {}) {
@@ -181,6 +190,7 @@ export class BookFlipRenderer {
     this.uTex = gl.getUniformLocation(program, 'uTex');
     this.uBackTex = gl.getUniformLocation(program, 'uBackTex');
     this.uHasBack = gl.getUniformLocation(program, 'uHasBack');
+    this.uBackRegion = gl.getUniformLocation(program, 'uBackRegion');
     gl.uniform1i(gl.getUniformLocation(program, 'uPaper'), 1);
     this.uSolid = gl.getUniformLocation(program, 'uSolid');
 
@@ -232,9 +242,11 @@ export class BookFlipRenderer {
   /**
    * A picture of the page(s) the turn goes to: what the back of the sheet shows (and, going back in
    * one-page view, the sheet itself). Without it the back is plain paper with the text faintly
-   * through it.
+   * through it. `part` says how much of the page the picture covers: just the left or right half
+   * (all the back of a two-page sheet needs, at half the cost) or all of it. A canvas handed over is
+   * emptied once it is on the GPU, so the memory is not held twice.
    */
-  setIncoming(source: TexImageSource | null) {
+  setIncoming(source: TexImageSource | null, part: 'left' | 'right' | 'all' = 'all') {
     const gl = this.gl;
     if (!gl || !source) {
       this.hasIncoming = false;
@@ -244,7 +256,12 @@ export class BookFlipRenderer {
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
     gl.activeTexture(gl.TEXTURE0);
+    this.incomingRegion = part === 'left' ? [0, 0.5] : part === 'right' ? [0.5, 0.5] : [0, 1];
     this.hasIncoming = true;
+    if (typeof HTMLCanvasElement !== 'undefined' && source instanceof HTMLCanvasElement) {
+      source.width = 0;
+      source.height = 0;
+    }
   }
 
   /** The theme's paper (background colour and texture), drawn on the back of the sheet. */
@@ -299,7 +316,9 @@ export class BookFlipRenderer {
 
     // Soft shadow on the page beneath: the sheet's footprint thrown away from the light.
     gl.uniform1f(this.uSolid, 1);
-    for (const [reach, alpha] of SHADOWS) {
+    // Old and small devices get a coarser shadow: half the passes, each a little darker.
+    const lite = document.documentElement.getAttribute('data-perf') === 'low';
+    for (const [reach, alpha] of lite ? LITE_SHADOWS : SHADOWS) {
       let n = 0;
       for (const point of profile) {
         const x = flipX(spine + (point.x + point.z * reach) * length);
@@ -317,6 +336,7 @@ export class BookFlipRenderer {
     this.pictures(plan.frontIsIncoming ? 2 : 0, this.hasIncoming ? 2 : 0);
     // The back has its own page only when the sheet is an old page turning (not the incoming one).
     gl.uniform1f(this.uHasBack, this.hasIncoming && !plan.frontIsIncoming ? 1 : 0);
+    gl.uniform2f(this.uBackRegion, this.incomingRegion[0], this.incomingRegion[1]);
     let n = 0;
     for (const point of profile) {
       const k = perspective(point.z * length, distance);

@@ -72,10 +72,14 @@ export interface CapturedTurnHost {
   getColumnCount?: () => number;
   /**
    * A picture of the page(s) the turn goes to, drawn from the live content once the jump underneath
-   * has landed. It is what the back of the turning sheet shows. It may take a while (it works in
+   * has landed. It is what the back of the turning sheet shows. `part` is how much of the page it
+   * needs to cover: the half beside the spine, or all of it. It may take a while (it works in
    * slices between frames); null when it could not be made.
    */
-  rasterizeIncoming?: (isCancelled: () => boolean) => Promise<TexImageSource | null>;
+  rasterizeIncoming?: (
+    isCancelled: () => boolean,
+    part: 'left' | 'right' | 'all',
+  ) => Promise<TexImageSource | null>;
   /** Instant (animation-less) page turn of the live view. */
   navigate: (forward: boolean) => Promise<void>;
 }
@@ -94,7 +98,7 @@ interface TurnRenderer {
   /** Which way the turn goes, and whether the book reads right to left. */
   setTurn?(forward: boolean, rtl: boolean): void;
   /** The picture of the page(s) the turn goes to. */
-  setIncoming?(source: TexImageSource | null): void;
+  setIncoming?(source: TexImageSource | null, part?: 'left' | 'right' | 'all'): void;
   /** Turn as a Page Flip where the surface can; returns whether it will. */
   setFlip?(flip: boolean): boolean;
   /** Release a Page Flip to its own physics; false when the turn does not flip. */
@@ -791,12 +795,17 @@ export class CapturedPageTurn {
   async #prepareIncoming(active: ActiveTurn) {
     const draw = this.#host.rasterizeIncoming;
     if (!draw || !this.#pageFlip(active.style)) return;
+    const spread = this.#spread();
+    // Going forward in one-page view the page leaves and its back is never seen: nothing to draw.
+    if (!spread && active.forward) return;
+    // In two-page view only the half beside the spine is ever seen (on the back of the sheet).
+    const part = !spread ? 'all' : active.rendererRtl ? 'right' : 'left';
     const gone = () => this.#disposed || this.#active !== active;
-    const picture = draw.call(this.#host, gone).catch(() => null);
+    const picture = draw.call(this.#host, gone, part).catch(() => null);
     const apply = (source: TexImageSource | null) => {
-      if (source && !gone()) active.renderer.setIncoming?.(source);
+      if (source && !gone()) active.renderer.setIncoming?.(source, part);
     };
-    if (!active.forward && !this.#spread()) {
+    if (!spread) {
       apply(await picture);
     } else {
       void picture.then(apply);

@@ -167,6 +167,23 @@ describe('BookFlipRenderer', () => {
     renderer.dispose();
   });
 
+  it('maps a half-page picture onto the back of the sheet, and frees the canvas', () => {
+    const renderer = make(true, true, false, false);
+    // Only the left half of the new page was drawn: a half-width canvas.
+    const half = document.createElement('canvas');
+    half.width = W / 2;
+    half.height = H;
+    const ctx = half.getContext('2d')!;
+    ctx.fillStyle = 'rgb(20,20,220)';
+    ctx.fillRect(0, 0, W / 2, H);
+    renderer.setIncoming(half, 'left');
+    expect(half.width).toBe(0);
+    renderer.render(0.8);
+    const onTheLeft = renderer.readPixel(120, 150);
+    expect(onTheLeft[2]).toBeGreaterThan(onTheLeft[0] + 80);
+    renderer.dispose();
+  });
+
   it('without a picture of the other page the back is paper, not an empty hole', () => {
     const renderer = make(true, true, false, false);
     renderer.render(0.8);
