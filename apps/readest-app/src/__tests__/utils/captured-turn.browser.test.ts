@@ -1560,4 +1560,76 @@ describe('CapturedPageTurn (browser)', () => {
     expect(pending.active).toBe(false);
     expect(host.querySelector('canvas')).toBeNull();
   });
+
+  describe('page flip: the page being turned to', () => {
+    const flipHost = (over: Partial<CapturedTurnHost> = {}): CapturedTurnHost => ({
+      getHostElement: () => host,
+      getContentRect: contentRect,
+      capture,
+      navigate,
+      isPageFlip: () => true,
+      ...over,
+    });
+    const picture = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = W;
+      canvas.height = H;
+      return canvas;
+    };
+
+    it('draws the incoming page once the jump underneath has landed, and hands it to the sheet', async () => {
+      const order: string[] = [];
+      navigate.mockImplementation(async () => {
+        order.push('navigate');
+      });
+      const rasterizeIncoming = vi.fn(async () => {
+        order.push('rasterize');
+        return picture();
+      });
+      const flip = new CapturedPageTurn(flipHost({ getColumnCount: () => 2, rasterizeIncoming }));
+      expect(await flip.beginDrag(true, false)).toBe(true);
+      expect(order).toEqual(['navigate', 'rasterize']);
+      expect(rasterizeIncoming).toHaveBeenCalledOnce();
+      flip.dispose();
+    });
+
+    it('waits for the previous page before going back in one-page view', async () => {
+      let resolve: (source: TexImageSource) => void = () => {};
+      const rasterizeIncoming = vi.fn(() => new Promise<TexImageSource>((r) => (resolve = r)));
+      const flip = new CapturedPageTurn(flipHost({ getColumnCount: () => 1, rasterizeIncoming }));
+      let started = false;
+      const turning = flip.beginDrag(false, false).then((ok) => {
+        started = ok;
+      });
+      await waitForPaint();
+      expect(started).toBe(false);
+      resolve(picture());
+      await turning;
+      expect(started).toBe(true);
+      flip.dispose();
+    });
+
+    it('does not wait for it going forward, and a failure leaves the turn working', async () => {
+      const rasterizeIncoming = vi.fn(() => new Promise<TexImageSource | null>(() => {}));
+      const flip = new CapturedPageTurn(flipHost({ getColumnCount: () => 2, rasterizeIncoming }));
+      expect(await flip.beginDrag(true, false)).toBe(true);
+      flip.dispose();
+      const failing = new CapturedPageTurn(
+        flipHost({
+          getColumnCount: () => 1,
+          rasterizeIncoming: () => Promise.reject(new Error('no')),
+        }),
+      );
+      expect(await failing.beginDrag(false, false)).toBe(true);
+      failing.dispose();
+    });
+
+    it('is not asked for the other styles', async () => {
+      const rasterizeIncoming = vi.fn(async () => picture());
+      const curl = new CapturedPageTurn(flipHost({ isPageFlip: () => false, rasterizeIncoming }));
+      expect(await curl.beginDrag(true, false)).toBe(true);
+      expect(rasterizeIncoming).not.toHaveBeenCalled();
+      curl.dispose();
+    });
+  });
 });

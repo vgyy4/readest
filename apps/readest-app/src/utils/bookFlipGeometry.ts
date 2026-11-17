@@ -74,3 +74,73 @@ export const shade = (phi: number, back: boolean) => {
   if (back) return Math.min(1, Math.max(0.8, 0.93 + 0.1 * facing));
   return Math.min(1.04, Math.max(0.62, 1 - 0.38 * (1 - relative)));
 };
+
+export interface TurnSetup {
+  /** Two pages on screen side by side (the turn hinges in the middle) or one (at the edge). */
+  spread: boolean;
+  /** Turning to the next page (true) or back to the previous one (false). */
+  forward: boolean;
+  /** A right-to-left book: its spine is on the right and its pages turn the other way. */
+  rtl: boolean;
+  /** There is a picture of the page being turned to (see `setIncoming`). */
+  hasIncoming: boolean;
+}
+
+export interface TurnPlan {
+  /** Drawn mirrored: the spine on the right, a left page turning over onto the right. */
+  mirror: boolean;
+  /** How far the sheet has turned (0 flat and untouched, 1 flat on the other side). */
+  sheetProgress: number;
+  /** The sheet's front is the page being turned to, not the one being turned from. */
+  frontIsIncoming: boolean;
+  /** The old page that stays flat under the sheet until it is covered: half the screen or all. */
+  stationary: 'half' | 'full' | null;
+  /** The turn ends in a short dissolve into the live page underneath. */
+  dissolve: boolean;
+}
+
+/**
+ * Who does what in a turn. In two-page view the page on the spine's far side turns over it in both
+ * directions (the right page going forward, the left one going back, the other way round in a
+ * right-to-left book); its other side is the page that is being turned to. In one-page view going
+ * forward the page leaves over the spine at the edge; going back, the previous page comes in over
+ * that same edge, which is the forward turn played backwards.
+ */
+export const planTurn = (setup: TurnSetup, progress: number): TurnPlan => {
+  const { spread, forward, rtl, hasIncoming } = setup;
+  if (spread) {
+    return {
+      mirror: forward ? rtl : !rtl,
+      sheetProgress: progress,
+      frontIsIncoming: false,
+      stationary: 'half',
+      dissolve: true,
+    };
+  }
+  if (forward) {
+    return {
+      mirror: rtl,
+      sheetProgress: progress,
+      frontIsIncoming: false,
+      stationary: null,
+      dissolve: false,
+    };
+  }
+  if (hasIncoming) {
+    return {
+      mirror: rtl,
+      sheetProgress: 1 - progress,
+      frontIsIncoming: true,
+      stationary: 'full',
+      dissolve: true,
+    };
+  }
+  // No picture of the previous page: it falls back to the page leaving over the other edge.
+  return {
+    mirror: !rtl,
+    sheetProgress: progress,
+    frontIsIncoming: false,
+    stationary: null,
+    dissolve: false,
+  };
+};

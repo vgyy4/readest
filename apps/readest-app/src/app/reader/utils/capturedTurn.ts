@@ -70,6 +70,12 @@ export interface CapturedTurnHost {
   isPageFlip?: () => boolean;
   /** How many pages are on screen side by side: with two the turn hinges in the middle. */
   getColumnCount?: () => number;
+  /**
+   * A picture of the page(s) the turn goes to, drawn from the live content once the jump underneath
+   * has landed. It is what the back of the turning sheet shows. It may take a while (it works in
+   * slices between frames); null when it could not be made.
+   */
+  rasterizeIncoming?: (isCancelled: () => boolean) => Promise<TexImageSource | null>;
   /** Instant (animation-less) page turn of the live view. */
   navigate: (forward: boolean) => Promise<void>;
 }
@@ -85,6 +91,10 @@ interface TurnRenderer {
   readonly pageFlip?: boolean;
   /** Two pages on screen side by side (the flip hinges in the middle) or one. */
   setSpread?(spread: boolean): void;
+  /** Which way the turn goes, and whether the book reads right to left. */
+  setTurn?(forward: boolean, rtl: boolean): void;
+  /** The picture of the page(s) the turn goes to. */
+  setIncoming?(source: TexImageSource | null): void;
   /** Turn as a Page Flip where the surface can; returns whether it will. */
   setFlip?(flip: boolean): boolean;
   /** Release a Page Flip to its own physics; false when the turn does not flip. */
@@ -718,6 +728,7 @@ export class CapturedPageTurn {
     try {
       renderer.setFlip?.(this.#pageFlip(style));
       renderer.setSpread?.(this.#spread());
+      renderer.setTurn?.(forward, rtl);
       renderer.render(0, this.#grab(active), active.rendererRtl);
       if (renderer.isUsable?.() === false) {
         throw new Error('Captured page-turn renderer became unavailable before navigation');
@@ -752,6 +763,8 @@ export class CapturedPageTurn {
       }
       await this.#host.navigate(forward);
       if (this.#disposed || this.#active !== active) return null;
+      await this.#prepareIncoming(active);
+      if (this.#disposed || this.#active !== active) return null;
       return active;
     } catch (error) {
       if (this.#disposed) return null;
@@ -767,6 +780,26 @@ export class CapturedPageTurn {
         this.#disposeActive();
       }
       throw error;
+    }
+  }
+
+  /**
+   * Draw the page(s) the turn goes to, for the back of the sheet. Going back in one-page view the
+   * sheet itself is that page, so the turn waits for it; otherwise the back is not seen until the
+   * sheet is past upright, and the picture is handed over when it is ready.
+   */
+  async #prepareIncoming(active: ActiveTurn) {
+    const draw = this.#host.rasterizeIncoming;
+    if (!draw || !this.#pageFlip(active.style)) return;
+    const gone = () => this.#disposed || this.#active !== active;
+    const picture = draw.call(this.#host, gone).catch(() => null);
+    const apply = (source: TexImageSource | null) => {
+      if (source && !gone()) active.renderer.setIncoming?.(source);
+    };
+    if (!active.forward && !this.#spread()) {
+      apply(await picture);
+    } else {
+      void picture.then(apply);
     }
   }
 

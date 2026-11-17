@@ -1,12 +1,21 @@
-import { perspective, SEGMENTS, shade, sheetProfile, smoothstep } from './bookFlipGeometry';
+import {
+  perspective,
+  planTurn,
+  SEGMENTS,
+  shade,
+  sheetProfile,
+  smoothstep,
+} from './bookFlipGeometry';
 
 /**
  * Page turn drawn like a real book, over a captured picture of the page(s) on screen.
  *
  * - Two pages side by side (landscape tablets, desktops): the right page turns over the spine in the
  *   middle and lands on the left; the left page stays put until it is covered. A backward turn is
- *   the mirror image: the left page turns over onto the right.
- * - One page: the page turns over the spine at the edge and leaves the screen.
+ *   the mirror image: the left page turns over onto the right. Each sheet has a page on both sides:
+ *   the page it is turned from on the front and the page it is turned to on the back.
+ * - One page: forward, the page turns over the spine at the edge and leaves the screen; backward,
+ *   the previous page comes in over the spine and lands on the page that was showing.
  *
  * The sheet is a strip of 2 x 37 vertices built on the CPU every frame (a handful of floats) and
  * drawn with one trivial shader: no per-pixel loops, so it stays smooth on old tablets. It bends as
@@ -30,9 +39,11 @@ void main() {
 
 const FRAGMENT = `
 precision mediump float;
-uniform sampler2D uTex;
-uniform sampler2D uBack;
-uniform float uSolid;   // 1: draw black with the vertex alpha (shadows)
+uniform sampler2D uTex;      // the picture on the front of the sheet
+uniform sampler2D uBackTex;  // the picture on its back (the page being turned to)
+uniform sampler2D uPaper;    // plain paper, for a back without a picture
+uniform float uHasBack;      // 1: the back has a picture of its own
+uniform float uSolid;        // 1: draw black with the vertex alpha (shadows)
 varying vec2 vUv;
 varying vec3 vInfo;
 void main() {
@@ -44,9 +55,12 @@ void main() {
   vec3 rgb;
   if (vInfo.y >= 0.0) {
     rgb = page.rgb * vInfo.x;
+  } else if (uHasBack > 0.5) {
+    // The back of the sheet is its own page, seen from behind: the same spot, mirrored across.
+    rgb = texture2D(uBackTex, vec2(1.0 - vUv.x, vUv.y)).rgb * vInfo.x;
   } else {
-    // The back of the sheet: the paper, with the text showing faintly through.
-    vec3 paper = texture2D(uBack, vUv).rgb;
+    // No picture of the other page: the paper, with the text showing faintly through.
+    vec3 paper = texture2D(uPaper, vUv).rgb;
     rgb = mix(paper, page.rgb, 0.1) * vInfo.x;
   }
   gl_FragColor = vec4(rgb * vInfo.z, vInfo.z);
@@ -81,6 +95,12 @@ export class BookFlipRenderer {
   private width = 0;
   private height = 0;
   private spread = false;
+  private forward = true;
+  private rtl = false;
+  private hasIncoming = false;
+  private uTex: WebGLUniformLocation | null = null;
+  private uBackTex: WebGLUniformLocation | null = null;
+  private uHasBack: WebGLUniformLocation | null = null;
   private data = new Float32Array((SEGMENTS + 1) * 2 * FLOATS);
 
   constructor(options: { preserveDrawingBuffer?: boolean } = {}) {
@@ -91,6 +111,12 @@ export class BookFlipRenderer {
   /** Two pages on screen (the turn then hinges in the middle) or one (it hinges at the edge). */
   setSpread(spread: boolean) {
     this.spread = spread;
+  }
+
+  /** Which way this turn goes, and whether the book reads right to left. */
+  setTurn(forward: boolean, rtl: boolean) {
+    this.forward = forward;
+    this.rtl = rtl;
   }
 
   attach(container: HTMLElement, width: number, height: number, dpr = window.devicePixelRatio) {
@@ -152,8 +178,10 @@ export class BookFlipRenderer {
       gl.vertexAttribPointer(location, size, gl.FLOAT, false, stride, offset * 4);
     }
     gl.uniform2f(gl.getUniformLocation(program, 'uSize'), width, height);
-    gl.uniform1i(gl.getUniformLocation(program, 'uTex'), 0);
-    gl.uniform1i(gl.getUniformLocation(program, 'uBack'), 1);
+    this.uTex = gl.getUniformLocation(program, 'uTex');
+    this.uBackTex = gl.getUniformLocation(program, 'uBackTex');
+    this.uHasBack = gl.getUniformLocation(program, 'uHasBack');
+    gl.uniform1i(gl.getUniformLocation(program, 'uPaper'), 1);
     this.uSolid = gl.getUniformLocation(program, 'uSolid');
 
     // The paper on the back of the sheet: white until the theme's background arrives.
@@ -201,6 +229,24 @@ export class BookFlipRenderer {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
   }
 
+  /**
+   * A picture of the page(s) the turn goes to: what the back of the sheet shows (and, going back in
+   * one-page view, the sheet itself). Without it the back is plain paper with the text faintly
+   * through it.
+   */
+  setIncoming(source: TexImageSource | null) {
+    const gl = this.gl;
+    if (!gl || !source) {
+      this.hasIncoming = false;
+      return;
+    }
+    this.makeTexture(2);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+    gl.activeTexture(gl.TEXTURE0);
+    this.hasIncoming = true;
+  }
+
   /** The theme's paper (background colour and texture), drawn on the back of the sheet. */
   setBackdrop(source: TexImageSource) {
     const gl = this.gl;
@@ -212,12 +258,8 @@ export class BookFlipRenderer {
     gl.activeTexture(gl.TEXTURE0);
   }
 
-  /**
-   * Draw the turn `progress` (0 to 1) of the way done. `mirror` turns the other way: the left page
-   * over onto the right (a backward turn in a left-to-right book, a forward one in a right-to-left
-   * book).
-   */
-  render(progress: number, _grab?: unknown, mirror = false) {
+  /** Draw the turn `progress` (0 = the page as it was, 1 = the page it turns to) of the way done. */
+  render(progress: number) {
     const gl = this.gl;
     if (!gl) return;
     const p = Math.min(1, Math.max(0, progress));
@@ -227,24 +269,33 @@ export class BookFlipRenderer {
     const w = this.width;
     const h = this.height;
     const spread = this.spread;
+    const plan = planTurn(
+      { spread, forward: this.forward, rtl: this.rtl, hasIncoming: this.hasIncoming },
+      p,
+    );
+    const mirror = plan.mirror;
     const spine = spread ? w / 2 : 0;
     const length = spread ? w / 2 : w;
-    const landing = spread ? 1 - smoothstep(LAND_FROM, 1, p) : 1;
+    const landing = plan.dissolve ? 1 - smoothstep(LAND_FROM, 1, p) : 1;
     const flipX = (x: number) => (mirror ? w - x : x);
     const flipU = (u: number) => (mirror ? 1 - u : u);
+    const sheetP = plan.sheetProgress;
 
     gl.uniform1f(this.uSolid, 0);
-    // The other page stays where it is, until the sheet has covered it.
-    if (spread && landing > 0) {
+    // The old page stays where it is, until the sheet has covered it.
+    this.pictures(0, 0);
+    if (plan.stationary === 'half' && landing > 0) {
       this.quad(flipX(0), flipX(spine), flipU(0), flipU(0.5), landing);
+    } else if (plan.stationary === 'full' && landing > 0) {
+      this.quad(0, w, 0, 1, landing);
     }
 
     // The sheet in side view, then on screen: in perspective, lit, with its two faces told apart.
-    const profile = sheetProfile(p);
+    const profile = sheetProfile(sheetP);
     const distance = VIEW_DISTANCE * h;
     const mid = h / 2;
 
-    if (spread && p > 0.001) this.gutter(p, flipX, spine, landing);
+    if (spread && sheetP > 0.001) this.gutter(sheetP, flipX, spine, landing);
 
     // Soft shadow on the page beneath: the sheet's footprint thrown away from the light.
     gl.uniform1f(this.uSolid, 1);
@@ -252,8 +303,9 @@ export class BookFlipRenderer {
       let n = 0;
       for (const point of profile) {
         const x = flipX(spine + (point.x + point.z * reach) * length);
-        const fade = (1 - smoothstep(0.05, 1.1, point.z)) * smoothstep(0, 0.04, point.z + p * 0.04);
-        const a = alpha * fade * landing * Math.min(1, p * 8) * (spread ? 1 : 0.8);
+        const fade =
+          (1 - smoothstep(0.05, 1.1, point.z)) * smoothstep(0, 0.04, point.z + sheetP * 0.04);
+        const a = alpha * fade * landing * Math.min(1, sheetP * 8) * (spread ? 1 : 0.8);
         n = this.vertex(n, x, 0, 0, 0, 1, 1, a);
         n = this.vertex(n, x, h, 0, 0, 1, 1, a);
       }
@@ -261,6 +313,10 @@ export class BookFlipRenderer {
     }
 
     gl.uniform1f(this.uSolid, 0);
+    // Front: the old page (or, going back in one-page view, the page coming in). Back: the new page.
+    this.pictures(plan.frontIsIncoming ? 2 : 0, this.hasIncoming ? 2 : 0);
+    // The back has its own page only when the sheet is an old page turning (not the incoming one).
+    gl.uniform1f(this.uHasBack, this.hasIncoming && !plan.frontIsIncoming ? 1 : 0);
     let n = 0;
     for (const point of profile) {
       const k = perspective(point.z * length, distance);
@@ -273,6 +329,13 @@ export class BookFlipRenderer {
       n = this.vertex(n, x, mid + mid * k, u, 1, light, face, landing);
     }
     this.draw(n);
+  }
+
+  /** Which picture is on the front of what is drawn next, and which on the back (texture units). */
+  private pictures(front: number, back: number) {
+    const gl = this.gl!;
+    gl.uniform1i(this.uTex, front);
+    gl.uniform1i(this.uBackTex, back);
   }
 
   /** A flat, lit rectangle of the picture from `x0` to `x1` px, `u0` to `u1` of its width. */

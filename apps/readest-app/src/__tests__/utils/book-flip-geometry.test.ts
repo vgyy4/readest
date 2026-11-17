@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   hingeAngle,
+  planTurn,
   perspective,
   SEGMENTS,
   shade,
@@ -81,5 +82,62 @@ describe('seeing the sheet', () => {
     expect(smoothstep(0.9, 1, 0.5)).toBe(0);
     expect(smoothstep(0.9, 1, 1)).toBe(1);
     expect(smoothstep(0, 1, 0.5)).toBeCloseTo(0.5, 9);
+  });
+});
+
+describe('who does what in a turn', () => {
+  const plan = (over: Partial<Parameters<typeof planTurn>[0]>, progress = 0.3) =>
+    planTurn({ spread: false, forward: true, rtl: false, hasIncoming: true, ...over }, progress);
+
+  it('turns the right page over the middle going forward in two-page view, the left going back', () => {
+    expect(plan({ spread: true, forward: true })).toMatchObject({
+      mirror: false,
+      sheetProgress: 0.3,
+      frontIsIncoming: false,
+      stationary: 'half',
+      dissolve: true,
+    });
+    expect(plan({ spread: true, forward: false })).toMatchObject({
+      mirror: true,
+      stationary: 'half',
+    });
+  });
+
+  it('reads the other way in a right-to-left book', () => {
+    expect(plan({ spread: true, forward: true, rtl: true }).mirror).toBe(true);
+    expect(plan({ spread: true, forward: false, rtl: true }).mirror).toBe(false);
+  });
+
+  it('lets the page leave over the spine at the edge going forward in one-page view', () => {
+    expect(plan({ forward: true })).toMatchObject({
+      mirror: false,
+      sheetProgress: 0.3,
+      frontIsIncoming: false,
+      stationary: null,
+      dissolve: false,
+    });
+    expect(plan({ forward: true, rtl: true }).mirror).toBe(true);
+  });
+
+  it('brings the previous page in going back in one-page view: the forward turn played backwards', () => {
+    expect(plan({ forward: false })).toMatchObject({
+      mirror: false,
+      sheetProgress: 0.7,
+      frontIsIncoming: true,
+      stationary: 'full',
+      dissolve: true,
+    });
+    // It starts off screen and ends flat on top of the page that was showing.
+    expect(plan({ forward: false }, 0).sheetProgress).toBe(1);
+    expect(plan({ forward: false }, 1).sheetProgress).toBe(0);
+  });
+
+  it('falls back to the old page leaving when there is no picture of the previous page', () => {
+    expect(plan({ forward: false, hasIncoming: false })).toMatchObject({
+      mirror: true,
+      sheetProgress: 0.3,
+      frontIsIncoming: false,
+      stationary: null,
+    });
   });
 });

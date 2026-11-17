@@ -13,6 +13,7 @@ import { TURN_GESTURE_LEFT_INSET_ATTRIBUTE } from '../utils/brightnessGesture';
 import { isLayeredTurnTouchActive, setLayeredTurnTouchClaimed } from '../utils/iframeEventHandlers';
 import { CapturedPageTurn, CapturedTurnStyle } from '../utils/capturedTurn';
 import { renderTurnBackdrop } from '../utils/turnBackdrop';
+import { rasterizeViewAsync } from '@/utils/pageRaster';
 import {
   createTurnGestureIntent as createArenaIntent,
   NATIVE_CAPTURED_TURN_ATTRIBUTE,
@@ -415,6 +416,30 @@ export const useCapturedTurn = (bookKey: string, viewRef: React.RefObject<Foliat
       },
       isPageFlip: () => getViewSettings(bookKey)?.pageTurnStyle === 'flip',
       getColumnCount: () => view.renderer.columnCount ?? 1,
+      rasterizeIncoming: async (isCancelled) => {
+        const cell = document.getElementById(`gridcell-${bookKey}`);
+        const rect = cell?.getBoundingClientRect();
+        if (!cell || !rect) return null;
+        const paper = await renderTurnBackdrop(
+          cell.querySelector('.foliate-viewer'),
+          useThemeStore.getState().themeCode.bg,
+          rect.width,
+          rect.height,
+        ).catch(() => null);
+        return rasterizeViewAsync(
+          cell,
+          { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+          {
+            dpr: Math.min(window.devicePixelRatio || 1, 1.5),
+            paper,
+            background: useThemeStore.getState().themeCode.bg,
+            budgetMs: 600,
+            isCancelled,
+            // The turn's own overlay is not part of the page.
+            skip: (element) => element.hasAttribute('data-captured-turn-prepared'),
+          },
+        );
+      },
       navigate: async (forward: boolean) => {
         // The paginator's animated paths (push slide and the layered VT
         // turns) all gate on the `animated` attribute; dropping it makes
