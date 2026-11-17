@@ -1,5 +1,6 @@
 import { BookFlipRenderer } from '@/utils/bookFlip';
 import { CurlGrab, PageCurlRenderer } from '@/utils/pageCurl';
+import { cropPicture, shrinkCapture } from '@/utils/pageRaster';
 import { PageSlideRenderer, type PageSlideSettleOptions } from '@/utils/pageSlide';
 
 /**
@@ -70,6 +71,12 @@ export interface CapturedTurnHost {
   isPageFlip?: () => boolean;
   /** How many pages are on screen side by side: with two the turn hinges in the middle. */
   getColumnCount?: () => number;
+  /**
+   * Which page, and in what look (text size, theme, ...), is on screen: two moments with the same
+   * key show the same picture. It lets a page that was just turned away from be reused, instead of
+   * drawn again, when the reader turns straight back. Null when it cannot be told.
+   */
+  getPageKey?: () => string | null;
   /**
    * A picture of the page(s) the turn goes to, drawn from the live content once the jump underneath
    * has landed. It is what the back of the turning sheet shows. `part` is how much of the page it
@@ -143,6 +150,8 @@ interface PreparedSurface {
   surfaceAlreadyPainted: boolean;
   /** Nested paint-tracking RAF, cancelled when the surface is consumed. */
   paintRaf: number;
+  /** A small copy of the captured page, kept to reuse if the reader turns straight back to it. */
+  picture: HTMLCanvasElement | null;
 }
 
 interface PreparingSurface {
@@ -170,7 +179,27 @@ interface ActiveTurn {
   animation: Animation | null;
   /** Resolves when the play-out animation finishes or is interrupted. */
   finish: (() => void) | null;
+  /** The page being left, small, and which page it is: remembered if the turn goes through. */
+  leftPicture: HTMLCanvasElement | null;
+  leftKey: string | null;
+  rect: CaptureRect;
+  dpr: number;
 }
+
+/** A page that was just turned away from, kept for a short while for a turn straight back to it. */
+interface RecentPage {
+  picture: HTMLCanvasElement;
+  key: string;
+  rect: CaptureRect;
+  dpr: number;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+/** How long it is kept: a misstap is undone within seconds, so half a minute is plenty. */
+const RECENT_PAGE_MS = 30_000;
+const RECENT_PAGE_LITE_MS = 20_000;
+/** The resolution it is kept at (device pixels per CSS pixel): only seen moving. */
+const RECENT_PAGE_DPR = 1.25;
 
 const easeInOutQuad = (t: number) => (t < 0.5 ? 2 * t * t : 1 - (1 - t) * (1 - t) * 2);
 const easeOutCubic = (t: number) => 1 - (1 - t) ** 3;
@@ -382,6 +411,7 @@ export class CapturedPageTurn {
         }
         try {
           await this.#playTo(active, 1);
+          this.#remember(active);
           return true;
         } finally {
           if (this.#active === active) this.#disposeActive();
@@ -508,6 +538,7 @@ export class CapturedPageTurn {
         this.#applyDragSession(active, session);
         if (commit) {
           await this.#playTo(active, 1, releaseVelocity);
+          this.#remember(active);
         } else {
           await this.#playTo(active, 0, releaseVelocity);
           if (this.#active === active) {
@@ -560,6 +591,7 @@ export class CapturedPageTurn {
     if (idlePreparingOwner === this) idlePreparingOwner = null;
     this.#dragSession = null;
     this.#busyDragSessions.clear();
+    this.#forgetRecent();
     this.invalidatePreparedCapture();
   }
 
@@ -724,7 +756,13 @@ export class CapturedPageTurn {
       raf: 0,
       animation: null,
       finish: null,
+      leftPicture: surface.picture,
+      leftKey: this.#host.getPageKey?.() ?? null,
+      rect: captureRect,
+      dpr,
     };
+    // The picture belongs to the turn now.
+    surface.picture = null;
     this.#active = active;
 
     // First frame draws the captured page exactly covering the content box,
@@ -787,6 +825,69 @@ export class CapturedPageTurn {
     }
   }
 
+  #recent: RecentPage | null = null;
+
+  #isLite() {
+    return (
+      typeof document !== 'undefined' &&
+      document.documentElement.getAttribute('data-perf') === 'low'
+    );
+  }
+
+  #recentDpr(dpr: number) {
+    return this.#isLite() ? 1 : Math.min(dpr, RECENT_PAGE_DPR);
+  }
+
+  #freePicture(picture: HTMLCanvasElement | null) {
+    if (!picture) return;
+    picture.width = 0;
+    picture.height = 0;
+  }
+
+  /** Let go of the page kept for a quick return. */
+  #forgetRecent() {
+    const recent = this.#recent;
+    if (!recent) return;
+    this.#recent = null;
+    clearTimeout(recent.timer);
+    this.#freePicture(recent.picture);
+  }
+
+  /**
+   * The turn went through: keep the page that was left for a while, in case the reader turns
+   * straight back (a misstap). Only one page is kept, so turning on two pages lets the first go.
+   */
+  #remember(active: ActiveTurn) {
+    const picture = active.leftPicture;
+    active.leftPicture = null;
+    this.#forgetRecent();
+    if (!picture || !active.leftKey || this.#disposed) {
+      this.#freePicture(picture);
+      return;
+    }
+    const timer = setTimeout(
+      () => this.#forgetRecent(),
+      this.#isLite() ? RECENT_PAGE_LITE_MS : RECENT_PAGE_MS,
+    );
+    this.#recent = {
+      picture,
+      key: active.leftKey,
+      rect: active.rect,
+      dpr: active.dpr,
+      timer,
+    };
+  }
+
+  /** The remembered page, if it is the one this turn goes to and the screen looks as it did. */
+  #recallFor(active: ActiveTurn): HTMLCanvasElement | null {
+    const recent = this.#recent;
+    if (!recent) return null;
+    const key = this.#host.getPageKey?.() ?? null;
+    if (!key || key !== recent.key || recent.dpr !== active.dpr) return null;
+    if (!sameCaptureRect(recent.rect, active.rect)) return null;
+    return recent.picture;
+  }
+
   /**
    * Draw the page(s) the turn goes to, for the back of the sheet. Going back in one-page view the
    * sheet itself is that page, so the turn waits for it; otherwise the back is not seen until the
@@ -801,6 +902,12 @@ export class CapturedPageTurn {
     // In two-page view only the half beside the spine is ever seen (on the back of the sheet).
     const part = !spread ? 'all' : active.rendererRtl ? 'right' : 'left';
     const gone = () => this.#disposed || this.#active !== active;
+    // Turning straight back to the page just left: it is already drawn.
+    const remembered = this.#recallFor(active);
+    if (remembered) {
+      active.renderer.setIncoming?.(cropPicture(remembered, part), part);
+      return;
+    }
     const picture = draw.call(this.#host, gone, part).catch(() => null);
     const apply = (source: TexImageSource | null) => {
       if (source && !gone()) active.renderer.setIncoming?.(source, part);
@@ -982,6 +1089,7 @@ export class CapturedPageTurn {
       bitmap.close();
       return null;
     }
+    let picture: HTMLCanvasElement | null = null;
     const overlay = document.createElement('div');
     const renderer: TurnRenderer =
       style === 'slide'
@@ -1006,6 +1114,9 @@ export class CapturedPageTurn {
       renderer.attach(overlay, rect.width, rect.height, dpr);
       renderer.setSpread?.(this.#spread());
       renderer.setTexture(bitmap);
+      if (this.#pageFlip(style) && this.#host.getPageKey) {
+        picture = shrinkCapture(bitmap, rect.width, rect.height, this.#recentDpr(dpr));
+      }
       if (backdrop) renderer.setBackdrop?.(backdrop);
       // At progress zero both directions are the same flat page. Claim redraws
       // once with the actual spine direction without reallocating or uploading.
@@ -1036,6 +1147,7 @@ export class CapturedPageTurn {
       dpr,
       surfaceAlreadyPainted: false,
       paintRaf: 0,
+      picture,
     };
     if (preMount) this.#trackPreparedSurfacePaint(surface);
     return surface;
@@ -1171,6 +1283,8 @@ export class CapturedPageTurn {
     this.#stopPreparedSurfacePaint(surface);
     surface.renderer.dispose();
     surface.overlay.remove();
+    this.#freePicture(surface.picture);
+    surface.picture = null;
   }
 
   #closePreparedSurface(releaseRetention = true) {
@@ -1325,6 +1439,8 @@ export class CapturedPageTurn {
     finish?.();
     active.renderer.dispose();
     active.overlay.remove();
+    this.#freePicture(active.leftPicture);
+    active.leftPicture = null;
   }
 
   #disposeActive() {

@@ -246,7 +246,11 @@ export class BookFlipRenderer {
    * (all the back of a two-page sheet needs, at half the cost) or all of it. A canvas handed over is
    * emptied once it is on the GPU, so the memory is not held twice.
    */
-  setIncoming(source: TexImageSource | null, part: 'left' | 'right' | 'all' = 'all') {
+  setIncoming(
+    source: TexImageSource | null,
+    part: 'left' | 'right' | 'all' = 'all',
+    release = true,
+  ) {
     const gl = this.gl;
     if (!gl || !source) {
       this.hasIncoming = false;
@@ -258,7 +262,11 @@ export class BookFlipRenderer {
     gl.activeTexture(gl.TEXTURE0);
     this.incomingRegion = part === 'left' ? [0, 0.5] : part === 'right' ? [0.5, 0.5] : [0, 1];
     this.hasIncoming = true;
-    if (typeof HTMLCanvasElement !== 'undefined' && source instanceof HTMLCanvasElement) {
+    if (
+      release &&
+      typeof HTMLCanvasElement !== 'undefined' &&
+      source instanceof HTMLCanvasElement
+    ) {
       source.width = 0;
       source.height = 0;
     }

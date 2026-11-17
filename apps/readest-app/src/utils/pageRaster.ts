@@ -370,6 +370,48 @@ export const cropPaper = (
   return crop;
 };
 
+/** A copy of `part` of a picture of a page, as a canvas of its own (the original is left as it is). */
+export const cropPicture = (
+  picture: HTMLCanvasElement,
+  part: 'left' | 'right' | 'all',
+): HTMLCanvasElement => {
+  const full = part === 'all';
+  const width = full ? picture.width : Math.round(picture.width / 2);
+  const crop = document.createElement('canvas');
+  crop.width = width;
+  crop.height = picture.height;
+  crop
+    .getContext('2d')
+    ?.drawImage(
+      picture,
+      part === 'right' ? picture.width - width : 0,
+      0,
+      width,
+      picture.height,
+      0,
+      0,
+      width,
+      picture.height,
+    );
+  return crop;
+};
+
+/** A smaller copy of a captured page (`dpr` device pixels per CSS pixel), for keeping a while. */
+export const shrinkCapture = (
+  capture: CanvasImageSource,
+  width: number,
+  height: number,
+  dpr: number,
+): HTMLCanvasElement | null => {
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(width * dpr));
+  canvas.height = Math.max(1, Math.round(height * dpr));
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.drawImage(capture, 0, 0, canvas.width, canvas.height);
+  return canvas;
+};
+
 const SLICE_MS = 7;
 
 /**

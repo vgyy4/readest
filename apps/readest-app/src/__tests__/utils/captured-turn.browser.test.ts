@@ -1654,6 +1654,83 @@ describe('CapturedPageTurn (browser)', () => {
       single.dispose();
     });
 
+    describe('the page just left is kept for a turn straight back', () => {
+      /** A book with pages A, B, C, D: `navigate` moves along them and the key says which one shows. */
+      const book = () => {
+        const pages = ['A', 'B', 'C', 'D'];
+        let at = 0;
+        navigate.mockImplementation(async (forward: boolean) => {
+          at = Math.min(pages.length - 1, Math.max(0, at + (forward ? 1 : -1)));
+        });
+        const rasterizeIncoming = vi.fn(async () => picture());
+        const flip = new CapturedPageTurn(
+          flipHost({
+            getColumnCount: () => 2,
+            getPageKey: () => pages[at]!,
+            rasterizeIncoming,
+          }),
+          { duration: 20 },
+        );
+        return { flip, rasterizeIncoming, goTo: (page: number) => (at = page) };
+      };
+
+      it('reuses it when the reader turns straight back, instead of drawing it again', async () => {
+        const { flip, rasterizeIncoming } = book();
+        await flip.turn(true, false);
+        expect(rasterizeIncoming).toHaveBeenCalledTimes(1);
+        await flip.turn(false, false);
+        expect(rasterizeIncoming).toHaveBeenCalledTimes(1);
+        flip.dispose();
+      });
+
+      it('lets it go once the reader has turned on two pages', async () => {
+        const { flip, rasterizeIncoming } = book();
+        await flip.turn(true, false); // A to B: A is kept
+        await flip.turn(true, false); // B to C: B is kept, A is let go
+        expect(rasterizeIncoming).toHaveBeenCalledTimes(2);
+        await flip.turn(false, false); // back to B: kept, no drawing
+        expect(rasterizeIncoming).toHaveBeenCalledTimes(2);
+        await flip.turn(false, false); // back to A: let go long ago, drawn again
+        expect(rasterizeIncoming).toHaveBeenCalledTimes(3);
+        flip.dispose();
+      });
+
+      it('does not reuse it for a different page', async () => {
+        const { flip, rasterizeIncoming, goTo } = book();
+        await flip.turn(true, false);
+        // A jump elsewhere (a link, the slider) lands on a page that is not the one kept.
+        goTo(3);
+        await flip.turn(false, false);
+        expect(rasterizeIncoming).toHaveBeenCalledTimes(2);
+        flip.dispose();
+      });
+
+      it('lets it go after half a minute', async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        try {
+          const { flip, rasterizeIncoming } = book();
+          await flip.turn(true, false);
+          vi.advanceTimersByTime(31_000);
+          await flip.turn(false, false);
+          expect(rasterizeIncoming).toHaveBeenCalledTimes(2);
+          flip.dispose();
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('keeps nothing from a turn that was cancelled', async () => {
+        const { flip, rasterizeIncoming } = book();
+        expect(await flip.beginDrag(true, false)).toBe(true);
+        await flip.endDrag(false);
+        expect(rasterizeIncoming).toHaveBeenCalledTimes(1);
+        await flip.turn(true, false);
+        // Nothing was kept by the cancelled drag, so this turn's own drawing is all there is.
+        expect(rasterizeIncoming).toHaveBeenCalledTimes(2);
+        flip.dispose();
+      });
+    });
+
     it('is not asked for the other styles', async () => {
       const rasterizeIncoming = vi.fn(async () => picture());
       const curl = new CapturedPageTurn(flipHost({ isPageFlip: () => false, rasterizeIncoming }));
