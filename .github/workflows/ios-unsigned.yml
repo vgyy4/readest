@@ -1,12 +1,12 @@
-name: iOS unsigned IPA
+name: iOS 12 legacy IPA
 
 # Builds an UNSIGNED Readest .ipa for sideloading (Sideloadly / AltStore re-sign it
-# with your own Apple ID). Minimum iOS is 15.0 on this branch.
+# with your own Apple ID). Minimum iOS is 12.0 on this branch (iPad mini 2, iPad Air 1, iPhone 5s).
 on:
   workflow_dispatch:
   # Runs when this file changes; start the others by hand (Actions > Run workflow).
   push:
-    branches: [ccr-03f565fc-tppj75]
+    branches: [legacy-ios12]
     paths: ['.github/workflows/ios-unsigned.yml']
 
 permissions:
@@ -86,6 +86,24 @@ jobs:
       # which renders its template only into an empty folder. Start from nothing,
       # then restore the tracked files so the repo's extensions, entitlements and
       # project settings win, as the Android release job does.
+      # Every Swift package states the oldest iOS it supports. Several say 13 or 14 although the code
+      # does not need it; the plugins that really do (Sign in with Apple, CoreHaptics, widgets) were
+      # taken out of this branch. Fetch the crates first, so the ones from the registry are on disk.
+      - name: Lower the minimum iOS of the Swift packages to 12
+        working-directory: apps/readest-app
+        run: |
+          cargo fetch --manifest-path src-tauri/Cargo.toml --target aarch64-apple-ios
+          for dir in "$GITHUB_WORKSPACE" "$HOME/.cargo/registry/src" "$HOME/.cargo/git/checkouts"; do
+            [ -d "$dir" ] || continue
+            find "$dir" -name Package.swift -not -path '*/node_modules/*' -not -path '*/.build/*' | while read -r f; do
+              sed -i '' -E \
+                -e 's/\.iOS\(\.v(1[3-9])\)/.iOS("12.0")/' \
+                -e 's/\.iOS\("1[3-9](\.0)?"\)/.iOS("12.0")/' "$f"
+            done
+          done
+          echo "iOS minimums now:"
+          { find "$GITHUB_WORKSPACE" "$HOME/.cargo/registry/src" "$HOME/.cargo/git/checkouts" -name Package.swift -not -path '*/node_modules/*' -not -path '*/.build/*' 2>/dev/null | xargs grep -h "\.iOS(" ; } | sort | uniq -c
+
       - name: Generate the iOS project files
         working-directory: apps/readest-app
         run: |
@@ -118,7 +136,7 @@ jobs:
           # Regenerate from the repo's own project.yml: that is what writes the
           # widget's Info.plist (declared there, not tracked).
           (cd src-tauri/gen/apple && xcodegen generate)
-          ls src-tauri/gen/apple/Readest_iOS src-tauri/gen/apple/ReadestWidget
+          ls src-tauri/gen/apple/Readest_iOS
 
       # The project hard-codes a signing team on each target, which outranks any
       # xcconfig override, so switch signing off in the project itself (the app,
@@ -137,6 +155,7 @@ jobs:
         working-directory: apps/readest-app
         env:
           NODE_OPTIONS: --max-old-space-size=6144
+          IPHONEOS_DEPLOYMENT_TARGET: '12.0'
         # Archive is produced before Tauri tries to export a signed IPA, and that
         # export is expected to fail without a signing identity.
         run: pnpm tauri ios build --ci || echo "tauri export step failed (expected without signing)"
@@ -158,6 +177,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Readest-unsigned-ipa
+          name: Readest-ios12-legacy-ipa
           path: Readest-unsigned.ipa
           if-no-files-found: error

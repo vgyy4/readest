@@ -429,8 +429,6 @@ export interface SystemSettings {
    */
   librarySortByAuto: boolean;
   libraryThenSortBy: LibrarySecondarySortByType;
-  /** The page flip became the default turn on phones and tablets; set once that was applied. */
-  pageFlipDefaulted?: boolean;
   /** Sort order of the secondary ("Then by") key, independent of `librarySortAscending` (#5119). */
   libraryThenSortAscending: boolean;
   libraryGroupBy: LibraryGroupByType;

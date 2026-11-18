@@ -506,9 +506,6 @@ pub fn run() {
     #[cfg(target_os = "macos")]
     let builder = builder.plugin(macos::safari_auth::init());
 
-    #[cfg(target_os = "ios")]
-    let builder = builder.plugin(tauri_plugin_sign_in_with_apple::init());
-
     #[cfg(any(target_os = "ios", target_os = "android"))]
     let builder = builder.plugin(tauri_plugin_haptics::init());
 

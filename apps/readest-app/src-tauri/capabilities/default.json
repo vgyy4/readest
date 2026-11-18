@@ -151,7 +151,6 @@
     "process:allow-restart",
     "oauth:allow-start",
     "oauth:allow-cancel",
-    "sign-in-with-apple:default",
     "opener:default",
     {
       "identifier": "opener:allow-open-url",

@@ -1,6 +1,5 @@
 import Foundation
 import UIKit
-import WidgetKit
 
 enum ReadingWidgetWriter {
   static let suiteName = "group.com.bilingify.readest"
@@ -60,8 +59,6 @@ enum ReadingWidgetWriter {
   static func write(snapshot: Snapshot) {
     guard let data = try? JSONEncoder().encode(snapshot) else { return }
     UserDefaults(suiteName: suiteName)?.set(data, forKey: snapshotKey)
-    DispatchQueue.main.async {
-      WidgetCenter.shared.reloadAllTimelines()
-    }
+    // The widget needs iOS 14; there is none in this build.
   }
 }

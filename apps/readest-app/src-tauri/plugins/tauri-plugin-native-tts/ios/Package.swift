@@ -7,7 +7,7 @@ let package = Package(
   name: "tauri-plugin-native-tts",
   platforms: [
     .macOS(.v10_13),
-    .iOS(.v14),
+    .iOS("12.0"),
   ],
   products: [
     // Products define the executables and libraries a package produces, and make them visible to other packages.

@@ -11,7 +11,7 @@ let package = Package(
     // Storefront is used unguarded and needs iOS 15. SPM takes the
     // deployment floor from this stanza, not from the build triple.
     // (String form: `.v15` needs swift-tools 5.5, this manifest is 5.3.)
-    .iOS("15.0"),
+    .iOS("12.0"),
   ],
   products: [
     // Products define the executables and libraries a package produces, and make them visible to other packages.

@@ -7,7 +7,6 @@ import StoreKit
 import SwiftRs
 import Tauri
 import UIKit
-import UniformTypeIdentifiers
 import WebKit
 import os
 
@@ -759,12 +758,15 @@ class NativeBridgePlugin: Plugin {
   // Resolves the foreground window scene. Its trait collection reflects
   // the real system appearance and is unaffected by the per-window
   // `overrideUserInterfaceStyle` that `set_system_ui_visibility` applies.
+  @available(iOS 13.0, *)
   private func foregroundWindowScene() -> UIWindowScene? {
     let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
     return scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
   }
 
   private func systemColorScheme() -> String {
+    // Before iOS 13 there is no dark mode to follow.
+    guard #available(iOS 13.0, *) else { return "light" }
     let userInterfaceStyle =
       foregroundWindowScene()?.traitCollection.userInterfaceStyle
       ?? UITraitCollection.current.userInterfaceStyle
@@ -971,13 +973,13 @@ class NativeBridgePlugin: Plugin {
     DispatchQueue.main.async {
       UIApplication.shared.setStatusBarHidden(!visible, with: .none)
 
-      let windows = UIApplication.shared.connectedScenes
-        .compactMap { $0 as? UIWindowScene }
-        .flatMap { $0.windows }
+      let windows = appWindows()
 
       let keyWindow = windows.first(where: { $0.isKeyWindow }) ?? windows.first
       if let keyWindow = keyWindow {
-        keyWindow.overrideUserInterfaceStyle = darkMode ? .dark : .light
+        if #available(iOS 13.0, *) {
+          keyWindow.overrideUserInterfaceStyle = darkMode ? .dark : .light
+        }
         keyWindow.layoutIfNeeded()
       } else {
         logger.error("No key window found")
@@ -1331,6 +1333,9 @@ class NativeBridgePlugin: Plugin {
   }
 
   @objc public func get_storefront_region_code(_ invoke: Invoke) {
+    guard #available(iOS 15.0, *) else {
+      return invoke.reject("Failed to get region code")
+    }
     Task {
       if let storefront = await Storefront.current {
         invoke.resolve(["regionCode": storefront.countryCode])
@@ -1538,9 +1543,7 @@ class NativeBridgePlugin: Plugin {
     }
 
     DispatchQueue.main.async {
-      let windows = UIApplication.shared.connectedScenes
-        .compactMap { $0 as? UIWindowScene }
-        .flatMap { $0.windows }
+      let windows = appWindows()
       let keyWindow = windows.first(where: { $0.isKeyWindow }) ?? windows.first
       guard let rootVC = keyWindow?.rootViewController else {
         invoke.reject("no root view controller")
@@ -1754,7 +1757,8 @@ class NativeBridgePlugin: Plugin {
       // folders as the selectable entries (you can't pick individual
       // files in this mode). `asCopy: false` keeps it a reference into
       // the original location instead of copying into our sandbox.
-      let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder], asCopy: false)
+      // The same picker on every iOS: the type-list initializer is deprecated from iOS 14 but works.
+      let picker = UIDocumentPickerViewController(documentTypes: ["public.folder"], in: .open)
       picker.allowsMultipleSelection = false
 
       let delegate = FolderPickerDelegate(invoke: invoke) { [weak self] in
@@ -2038,12 +2042,8 @@ private final class FolderPickerDelegate: NSObject, UIDocumentPickerDelegate {
 /// presentedViewController chains and unwraps standard container
 /// types (UINavigationController, UITabBarController).
 private func topmostViewController() -> UIViewController? {
-  let scene =
-    UIApplication.shared.connectedScenes
-    .compactMap { $0 as? UIWindowScene }
-    .first { $0.activationState == .foregroundActive }
-    ?? UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
-  let window = scene?.windows.first(where: \.isKeyWindow) ?? scene?.windows.first
+  let windows = appWindows()
+  let window = windows.first(where: \.isKeyWindow) ?? windows.first
   var top = window?.rootViewController
   while let presented = top?.presentedViewController {
     top = presented
@@ -2190,4 +2190,14 @@ extension NativeBridgePlugin: UIApplicationDelegate {
   public func applicationWillTerminate(_ application: UIApplication) {
     self.originalDelegate?.applicationWillTerminate?(application)
   }
+}
+
+/// The app's windows. Before iOS 13 there are no scenes: they are the application's own.
+private func appWindows() -> [UIWindow] {
+  if #available(iOS 13.0, *) {
+    return UIApplication.shared.connectedScenes
+      .compactMap { $0 as? UIWindowScene }
+      .flatMap { $0.windows }
+  }
+  return UIApplication.shared.windows
 }

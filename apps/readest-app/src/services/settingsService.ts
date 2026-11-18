@@ -117,17 +117,6 @@ export function migrateLibraryThenSort(settings: SystemSettings): void {
   delete legacy.librarySortBy2;
 }
 
-/**
- * Phones and tablets turn pages with the page flip by default now. A reader who has not chosen a
- * turn is on the old default (push), so that one is moved over, once; any other choice stays.
- */
-export function migratePageTurnDefault(settings: SystemSettings, isMobile: boolean): void {
-  if (!isMobile || settings.pageFlipDefaulted) return;
-  settings.pageFlipDefaulted = true;
-  const view = settings.globalViewSettings;
-  if (view && (!view.pageTurnStyle || view.pageTurnStyle === 'push')) view.pageTurnStyle = 'flip';
-}
-
 export async function loadSettings(ctx: Context): Promise<SystemSettings> {
   const defaultSettings: SystemSettings = {
     ...DEFAULT_SYSTEM_SETTINGS,
@@ -184,7 +173,6 @@ export async function loadSettings(ctx: Context): Promise<SystemSettings> {
   }
 
   migrateLibraryThenSort(settings);
-  migratePageTurnDefault(settings, ctx.isMobile);
 
   if (!settings.kosync.deviceId) {
     settings.kosync.deviceId = uuidv4();
